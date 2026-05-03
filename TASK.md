@@ -2,9 +2,9 @@
 
 ## フェーズ1: プロジェクト初期セットアップ
 
-- [ ] WPF + .NET 8 プロジェクトの作成
-- [ ] NuGetパッケージの追加（Microsoft.CodeAnalysis.CSharp）
-- [ ] architecture.md に基づくフォルダ構成の作成
+- [x] WPF + .NET 10 プロジェクトの作成
+- [x] NuGetパッケージの追加（Microsoft.CodeAnalysis.CSharp）
+- [x] architecture.md に基づくフォルダ構成の作成
 
 ## フェーズ2: Models層の実装
 
