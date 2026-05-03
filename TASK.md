@@ -27,7 +27,7 @@
 
 ## フェーズ5: Helpers層の実装
 
-- [ ] `ColorPalette` の実装（HSL色空間での名前空間カラー自動割り当て）
+- [x] `ColorPalette` の実装（HSL色空間での名前空間カラー自動割り当て）
 
 ## フェーズ6: Layout層の実装
 
