@@ -31,8 +31,8 @@
 
 ## フェーズ6: Layout層の実装
 
-- [ ] `LayoutResult` の実装（ClassRects / NamespaceRects / ArrowRoutes）
-- [ ] `LayoutEngine` の実装（6ステップのレイアウト計算）
+- [x] `LayoutResult` の実装（ClassRects / NamespaceRects / ArrowRoutes）
+- [x] `LayoutEngine` の実装（6ステップのレイアウト計算）
 
 ## フェーズ7: Rendering層の実装
 
