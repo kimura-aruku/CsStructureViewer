@@ -8,10 +8,10 @@
 
 ## フェーズ2: Models層の実装
 
-- [ ] `ClassNode` の実装
-- [ ] `NamespaceNode` の実装
-- [ ] `DependencyEdge` / `DependencyKind` の実装
-- [ ] `ProjectGraph` の実装
+- [x] `ClassNode` の実装
+- [x] `NamespaceNode` の実装
+- [x] `DependencyEdge` / `DependencyKind` の実装
+- [x] `ProjectGraph` の実装
 
 ## フェーズ3: Settings層の実装
 
