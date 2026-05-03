@@ -20,10 +20,10 @@
 
 ## フェーズ4: Analysis層の実装
 
-- [ ] `NamespaceResolver` の実装（namespace宣言の抽出）
-- [ ] `ClassAnalyzer` の実装（クラス・継承・実装・フィールド参照の抽出）
-- [ ] `partial class` の名寄せ処理
-- [ ] `ProjectAnalyzer` の実装（ファイル列挙・除外・非同期・CancellationToken）
+- [x] `NamespaceResolver` の実装（namespace宣言の抽出）
+- [x] `ClassAnalyzer` の実装（クラス・継承・実装・フィールド参照の抽出）
+- [x] `partial class` の名寄せ処理
+- [x] `ProjectAnalyzer` の実装（ファイル列挙・除外・非同期・CancellationToken）
 
 ## フェーズ5: Helpers層の実装
 
