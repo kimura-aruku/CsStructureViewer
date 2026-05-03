@@ -15,8 +15,8 @@
 
 ## フェーズ3: Settings層の実装
 
-- [ ] `AppSettings` の実装（除外パターン一覧）
-- [ ] `SettingsManager` の実装（JSON読み書き、デフォルト値生成）
+- [x] `AppSettings` の実装（除外パターン一覧）
+- [x] `SettingsManager` の実装（JSON読み書き、デフォルト値生成）
 
 ## フェーズ4: Analysis層の実装
 
