@@ -60,3 +60,31 @@
 - [x] 実際のC#プロジェクトで解析・表示の確認
 - [ ] 実際のUnityプロジェクトで解析・表示の確認
 - [ ] レイアウト・表示の調整
+
+## フェーズ11: 機能改善（仕様v2）
+
+### 11.1 Settings層の更新
+- [ ] `AppSettings` に `InternalExcludePatterns` プロパティを追加
+- [ ] `SettingsManager` のデフォルト値生成を更新（`InternalExcludePatterns` は空リスト）
+
+### 11.2 Layout層の更新
+- [ ] `LayoutEngine.Calculate()` にキャンバス最大幅（`canvasMaxWidth`）を引数として追加
+- [ ] `LayoutResult` に `FolderNamespaces`（フォルダ矩形対象の名前空間集合）を追加
+- [ ] `ArrowRoute` を折れ線対応（`IReadOnlyList<Point> Waypoints`）に変更
+- [ ] フォルダ矩形レイアウト計算を実装（内部依存除外パターンに一致する名前空間を検出）
+- [ ] オルソゴナル矢印ルーティングを実装（直角折れ線、矩形回避）
+- [ ] 矢印スプレッド処理を実装（同一辺通過の矢印を均等にずらす）
+
+### 11.3 Rendering層の更新
+- [ ] フォルダ矩形の描画を実装（点線枠、グレー半透明、ラベル）
+- [ ] 矢印描画を折れ線（`PolyLineSegment`）対応に変更
+
+### 11.4 ViewModel層の更新
+- [ ] `MainViewModel` に `RefreshCommand` を追加
+- [ ] `MainViewModel` に `LastFolderPath` を追加
+- [ ] `MainViewModel` に `ShowRefresh` プロパティを追加
+- [ ] `LayoutEngine.Calculate()` 呼び出し時にウィンドウ幅を渡す
+
+### 11.5 View層の更新
+- [ ] `MainWindow` に「更新」ボタンを追加（ビューワー左上、メニューバー下）
+- [ ] `SettingsWindow` に内部依存除外パターンのリストUIを追加（ラベル変更含む）

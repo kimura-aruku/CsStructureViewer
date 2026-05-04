@@ -54,13 +54,13 @@ CsStructureViewer/
 ## 3. データフロー
 
 ```
-[ユーザー操作: フォルダ選択]
+[ユーザー操作: フォルダ選択 / 更新]
         ↓
   ProjectAnalyzer          # .csファイルを列挙してRoslynで解析
         ↓
   ProjectGraph             # ClassNode / NamespaceNode / DependencyEdge のグラフ
         ↓
-  LayoutEngine             # 座標・サイズを計算
+  LayoutEngine             # 座標・サイズを計算（ウィンドウ幅を渡す）
         ↓
   LayoutResult             # 全ノードの確定した Rect と矢印ルート
         ↓
@@ -118,12 +118,18 @@ class ProjectGraph {
   - `BaseListSyntax` → 継承・実装の `DependencyEdge`
   - `FieldDeclarationSyntax` / `PropertyDeclarationSyntax` の型 → フィールド参照の `DependencyEdge`
 - `partial class` は全ファイル解析後にクラス名で名寄せして1つの `ClassNode` に統合
-- 除外設定に該当するパス（フォルダ名・ファイル名）はファイル列挙時にスキップ
+- **完全除外パターン**に該当するパス（フォルダ名・ファイル名）はファイル列挙時にスキップ
+- **内部依存除外パターン**に該当する名前空間はグラフに含めるが、LayoutEngine側でフォルダ矩形扱いにする
 - `CancellationToken` を受け取り、キャンセル時に解析を中断
 
 ### 4.3 Layout層
 
 計算は純粋関数的に実装し、Modelの座標を直接変更しない（`LayoutResult`に書き出す）。
+
+**LayoutEngine への入力：**
+- `ProjectGraph`: 解析結果
+- `AppSettings`: 内部依存除外パターン
+- `canvasMaxWidth` (double): 解析開始時のウィンドウ幅（MainViewModelが渡す）
 
 **計算手順：**
 
@@ -136,36 +142,51 @@ class ProjectGraph {
 3. **名前空間矩形のサイズ計算**  
    内包するクラス矩形の総面積＋paddingで名前空間矩形サイズを決定
 
-4. **名前空間矩形の配置**  
-   名前空間矩形を左上から横方向に並べ、Canvasの最大幅を超えたら折り返す
+4. **フォルダ矩形の計算**  
+   内部依存除外パターンに一致する名前空間をフォルダ矩形として扱う。  
+   フォルダ矩形内には名前空間矩形のみを配置し、クラス矩形は非表示。
 
-5. **グローバル名前空間クラスの配置**  
+5. **名前空間矩形・フォルダ矩形の配置**  
+   左上から横方向に並べ、`canvasMaxWidth` を超えたら折り返す
+
+6. **グローバル名前空間クラスの配置**  
    名前空間矩形群の後ろに続けて配置
 
-6. **矢印ルートの計算**  
-   依存元・依存先の矩形の中心から最短のボーダー点を結ぶ直線を算出
+7. **矢印ルートの計算（オルソゴナルルーティング）**  
+   - 内部依存除外パターンに含まれる名前空間のクラスが関与するエッジは除外
+   - 各エッジを直角折れ線（L字 or Z字）で経路計算
+   - すべての矩形（クラス・名前空間・フォルダ）を避けるよう経路を迂回
+   - 同一辺を通過する複数矢印は辺上で均等にずらして重ならないように配置
 
 ```csharp
 class LayoutResult {
     Dictionary<ClassNode, Rect> ClassRects;
     Dictionary<NamespaceNode, Rect> NamespaceRects;
-    List<ArrowRoute> Arrows;       // 始点・終点・矢印種別
+    HashSet<NamespaceNode> FolderNamespaces;   // フォルダ矩形として描画する名前空間
+    List<ArrowRoute> Arrows;                   // 始点・終点・経由点・矢印種別
 }
+
+record ArrowRoute(IReadOnlyList<Point> Waypoints, DependencyKind Kind);
 ```
 
 ### 4.4 Rendering層（GraphCanvas）
 
-- WPF `Canvas` を継承したカスタムコントロール
+- WPF `FrameworkElement` を継承したカスタムコントロール
 - `LayoutResult` を受け取り、`Border`・`TextBlock` などの `UIElement` を Canvas 上に配置
 - ネストクラスは親クラス矩形内に子 `Border` を配置
-- 矢印は `Path`（`LineGeometry` / `PathGeometry`）で描画
+- 矢印は `Path`（`PolyLineSegment` / `PathGeometry`）で描画
 - 名前空間矩形の枠上テキストは `Canvas.SetLeft/Top` で矩形枠上に重ねて配置
+
+**フォルダ矩形の描画：**
+- `LayoutResult.FolderNamespaces` に含まれる名前空間を点線枠・グレー半透明で描画
+- 内包するクラス矩形は描画しない
 
 **ズーム・パン：**
 
 ```
 Canvas（外側：クリップ領域）
 └── Canvas（内側：RenderTransform対象）
+      ├── フォルダ矩形群（Border, 点線枠）
       ├── 名前空間矩形群（Border）
       ├── クラス矩形群（Border + TextBlock）
       └── 矢印群（Path）
@@ -184,13 +205,35 @@ Canvas（外側：クリップ領域）
 **設定データ構造：**
 ```csharp
 class AppSettings {
-    List<string> ExcludePatterns;   // 除外パターン一覧
+    List<string> ExcludePatterns;                   // 完全除外パターン
+    List<string> InternalExcludePatterns;           // 内部依存除外パターン
 }
 ```
 
-デフォルト除外パターン: `bin`, `obj`, `.git`, `Editor`, `Temp`, `temp`, `Tests`
+完全除外パターンのデフォルト: `bin`, `obj`, `.git`, `Editor`, `Temp`, `temp`, `Tests`  
+内部依存除外パターンのデフォルト: なし
 
 **SettingsManager：** 起動時に読み込み、設定保存時に書き込む。ファイル未存在時はデフォルト値で生成。
+
+### 4.6 ViewModel層
+
+```csharp
+class MainViewModel {
+    AsyncRelayCommand OpenProjectCommand;   // フォルダ選択 → 解析
+    AsyncRelayCommand RefreshCommand;       // 同じフォルダで再解析（フォルダ選択済み時のみ有効）
+    RelayCommand CancelCommand;
+    bool IsAnalyzing;
+    bool ShowWelcome;     // フォルダ未選択時 true
+    bool ShowGraph;       // 解析完了後 true
+    bool ShowRefresh;     // フォルダ選択済みかつ非解析中 true
+    string? LastFolderPath;   // 最後に選択したフォルダパス
+    LayoutResult? LayoutResult;
+    AppSettings Settings;
+}
+```
+
+- `RefreshCommand` は `LastFolderPath` を使って `OpenProjectCommand` と同じ解析フローを実行
+- `LayoutEngine.Calculate()` にはウィンドウ幅（`ActualWidth`）を渡す
 
 ---
 
@@ -200,6 +243,7 @@ class AppSettings {
 - Saturation: 50〜60%、Lightness: 60〜70% で視認性を確保
 - 名前空間矩形: 上記色を半透明（Alpha 60〜80）で塗りつぶし
 - クラス矩形: 同じHueで Lightness をやや下げた色（不透明）で塗りつぶし
+- フォルダ矩形: グレーの半透明（色相なし、固定色）
 
 ---
 
@@ -207,10 +251,11 @@ class AppSettings {
 
 ```
 MainViewModel
-├── OpenProjectCommand        # フォルダ選択ダイアログ → ProjectAnalyzer呼び出し
-├── IsAnalyzing (bool)        # スピナー表示フラグ
-├── CancelCommand             # CancellationTokenSource.Cancel()
-└── LayoutResult              # 解析・レイアウト完了後に GraphCanvas へバインド
+├── OpenProjectCommand    # フォルダ選択ダイアログ → ProjectAnalyzer呼び出し
+├── RefreshCommand        # LastFolderPath で再解析
+├── IsAnalyzing (bool)    # スピナー表示フラグ
+├── CancelCommand         # CancellationTokenSource.Cancel()
+└── LayoutResult          # 解析・レイアウト完了後に GraphCanvas へバインド
 ```
 
 - 解析中はメインウィンドウ上にスピナーとキャンセルボタンをオーバーレイ表示
@@ -224,5 +269,4 @@ MainViewModel
 |------|-----------|
 | ジェネリッククラスの表示 | `List<T>` → `List<T>` をそのままクラス名として表示する方向で検討 |
 | クラス矩形の最大幅 | 定数として定義（例: 200px）。将来的に設定可能にする可能性あり |
-| 矢印の重なり対策 | 初期実装では直線のみ。将来的にベジェ曲線等で回避 |
 | 大規模プロジェクトへの対応 | 初期実装では件数制限なし。パフォーマンス問題が出たら対処 |
