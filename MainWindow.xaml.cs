@@ -10,7 +10,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        DataContext = new MainViewModel();
+        var vm = new MainViewModel { CanvasWidth = Width };
+        DataContext = vm;
+        SizeChanged += (_, e) => vm.CanvasWidth = e.NewSize.Width;
     }
 
     private void OpenSettings_Click(object sender, RoutedEventArgs e)

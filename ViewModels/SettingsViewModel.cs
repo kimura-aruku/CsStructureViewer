@@ -11,6 +11,8 @@ public class SettingsViewModel
     private readonly SettingsManager _settingsManager;
 
     public ObservableCollection<ExcludePatternItem> Patterns { get; } = new();
+    public ObservableCollection<ExcludePatternItem> InternalPatterns { get; } = new();
+    public RelayCommand AddInternalPatternCommand { get; }
 
     public SettingsViewModel(AppSettings settings, SettingsManager settingsManager)
     {
@@ -18,33 +20,44 @@ public class SettingsViewModel
         _settingsManager = settingsManager;
 
         foreach (var p in settings.ExcludePatterns)
-            Patterns.Add(CreateItem(p));
+            Patterns.Add(CreateItem(p, Patterns));
+
+        foreach (var p in settings.InternalExcludePatterns)
+            InternalPatterns.Add(CreateItem(p, InternalPatterns));
+
+        AddInternalPatternCommand = new RelayCommand(() =>
+        {
+            InternalPatterns.Add(CreateItem(string.Empty, InternalPatterns));
+            Save();
+        });
     }
 
-    private ExcludePatternItem CreateItem(string pattern)
+    private ExcludePatternItem CreateItem(string pattern, ObservableCollection<ExcludePatternItem> list)
     {
-        var item = new ExcludePatternItem(pattern, AddAfter, Remove);
+        ExcludePatternItem? item = null;
+        item = new ExcludePatternItem(
+            pattern,
+            addAfter: _ =>
+            {
+                var idx = list.IndexOf(item!);
+                list.Insert(idx + 1, CreateItem(string.Empty, list));
+                Save();
+            },
+            remove: _ =>
+            {
+                list.Remove(item!);
+                Save();
+            });
         item.PropertyChanged += (_, _) => Save();
         return item;
-    }
-
-    private void AddAfter(ExcludePatternItem item)
-    {
-        var idx = Patterns.IndexOf(item);
-        Patterns.Insert(idx + 1, CreateItem(string.Empty));
-        Save();
-    }
-
-    private void Remove(ExcludePatternItem item)
-    {
-        Patterns.Remove(item);
-        Save();
     }
 
     public void Save()
     {
         _settings.ExcludePatterns.Clear();
         _settings.ExcludePatterns.AddRange(Patterns.Select(p => p.Pattern));
+        _settings.InternalExcludePatterns.Clear();
+        _settings.InternalExcludePatterns.AddRange(InternalPatterns.Select(p => p.Pattern));
         _settingsManager.Save(_settings);
     }
 }

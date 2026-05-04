@@ -34,6 +34,14 @@
                 LayoutResult="{Binding LayoutResult}"
                 Visibility="{Binding ShowGraph, Converter={StaticResource BoolToVis}}"/>
 
+            <!-- 更新ボタン -->
+            <Button Content="更新"
+                    Command="{Binding RefreshCommand}"
+                    Visibility="{Binding ShowRefresh, Converter={StaticResource BoolToVis}}"
+                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                    Margin="8,8,0,0" Padding="14,5" FontSize="12"
+                    Panel.ZIndex="50"/>
+
             <!-- 解析中オーバーレイ -->
             <Grid Panel.ZIndex="100"
                   Visibility="{Binding IsAnalyzing, Converter={StaticResource BoolToVis}}">

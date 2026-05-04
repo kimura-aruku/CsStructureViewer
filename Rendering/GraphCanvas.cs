@@ -30,6 +30,8 @@ public class GraphCanvas : FrameworkElement
     private Vector _translateOrigin;
 
     private static readonly Color GlobalClassColor = Color.FromRgb(180, 185, 195);
+    private static readonly Color FolderFillColor = Color.FromArgb(45, 140, 140, 140);
+    private static readonly Color FolderBorderColor = Color.FromArgb(180, 110, 110, 110);
 
     public GraphCanvas()
     {
@@ -74,30 +76,79 @@ public class GraphCanvas : FrameworkElement
 
         var total = result.NamespaceOrder.Count;
 
-        // Layer 1: namespace rects
+        // Layer 1: folder rects (below everything)
+        foreach (var ns in result.FolderNamespaces)
+        {
+            if (result.NamespaceRects.TryGetValue(ns, out var rect))
+                DrawFolderRect(ns, rect);
+        }
+
+        // Layer 2: regular namespace rects
         for (var i = 0; i < total; i++)
         {
             var ns = result.NamespaceOrder[i];
+            if (result.FolderNamespaces.Contains(ns)) continue;
             var (nsColor, _) = ColorPalette.GetColors(i, total);
             DrawNamespaceRect(ns, result.NamespaceRects[ns], nsColor);
         }
 
-        // Layer 2: arrows
+        // Layer 3: arrows
         foreach (var arrow in result.Arrows)
             DrawArrow(arrow);
 
-        // Layer 3: class rects (namespace classes)
+        // Layer 4: class rects (namespace classes, skip folder namespaces)
         for (var i = 0; i < total; i++)
         {
             var ns = result.NamespaceOrder[i];
+            if (result.FolderNamespaces.Contains(ns)) continue;
             var (_, classColor) = ColorPalette.GetColors(i, total);
             foreach (var cls in ns.Classes)
                 DrawClassRect(cls, result.ClassRects, classColor);
         }
 
-        // Layer 3: class rects (global classes)
+        // Layer 4: class rects (global classes)
         foreach (var cls in result.GlobalClasses)
             DrawClassRect(cls, result.ClassRects, GlobalClassColor);
+    }
+
+    // ── Folder rect drawing ──────────────────────────────────────────
+
+    private void DrawFolderRect(NamespaceNode ns, Rect rect)
+    {
+        var bg = new Rectangle
+        {
+            Width = rect.Width,
+            Height = rect.Height,
+            Fill = new SolidColorBrush(FolderFillColor),
+            Stroke = new SolidColorBrush(FolderBorderColor),
+            StrokeThickness = 1.5,
+            StrokeDashArray = new DoubleCollection([5, 3]),
+            RadiusX = 4,
+            RadiusY = 4
+        };
+        Canvas.SetLeft(bg, rect.X);
+        Canvas.SetTop(bg, rect.Y);
+        _inner.Children.Add(bg);
+
+        var label = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(200, 220, 220, 220)),
+            BorderBrush = new SolidColorBrush(FolderBorderColor),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(6, 1, 6, 1),
+            Child = new TextBlock
+            {
+                Text = ns.Name,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.DimGray
+            }
+        };
+        label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        Canvas.SetLeft(label, rect.X + 12);
+        Canvas.SetTop(label, rect.Y - label.DesiredSize.Height / 2);
+        _inner.Children.Add(label);
     }
 
     // ── Namespace drawing ────────────────────────────────────────────
@@ -182,7 +233,10 @@ public class GraphCanvas : FrameworkElement
 
     private void DrawArrow(ArrowRoute arrow)
     {
-        var angle = Math.Atan2(arrow.End.Y - arrow.Start.Y, arrow.End.X - arrow.Start.X);
+        if (arrow.Waypoints.Count < 2) return;
+
+        var penultimate = arrow.Waypoints[^2];
+        var angle = Math.Atan2(arrow.End.Y - penultimate.Y, arrow.End.X - penultimate.X);
         const double arrowLen = 13.0;
         const double halfAngle = Math.PI / 6;
 
@@ -192,10 +246,18 @@ public class GraphCanvas : FrameworkElement
                         arrow.End.Y - arrowLen * Math.Sin(angle))
             : arrow.End;
 
-        // Shaft
+        // Shaft (polyline through waypoints)
+        var fig = new PathFigure { StartPoint = arrow.Start };
+        for (int i = 1; i < arrow.Waypoints.Count - 1; i++)
+            fig.Segments.Add(new LineSegment(arrow.Waypoints[i], isStroked: true));
+        fig.Segments.Add(new LineSegment(lineEnd, isStroked: true));
+
+        var geom = new PathGeometry();
+        geom.Figures.Add(fig);
+
         var shaft = new Path
         {
-            Data = new LineGeometry(arrow.Start, lineEnd),
+            Data = geom,
             Stroke = Brushes.DimGray,
             StrokeThickness = 1.5
         };
@@ -213,10 +275,10 @@ public class GraphCanvas : FrameworkElement
         var headGeom = new PathGeometry();
         if (isTriangle)
         {
-            var fig = new PathFigure { StartPoint = left, IsClosed = true };
-            fig.Segments.Add(new LineSegment(arrow.End, isStroked: true));
-            fig.Segments.Add(new LineSegment(right, isStroked: true));
-            headGeom.Figures.Add(fig);
+            var hf = new PathFigure { StartPoint = left, IsClosed = true };
+            hf.Segments.Add(new LineSegment(arrow.End, isStroked: true));
+            hf.Segments.Add(new LineSegment(right, isStroked: true));
+            headGeom.Figures.Add(hf);
         }
         else
         {
