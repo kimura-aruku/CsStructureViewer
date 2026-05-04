@@ -33,7 +33,7 @@ public class LayoutEngine
                 result.FolderNamespaces.Add(ns);
         }
 
-        // Step 1: Calculate sizes for all classes (including nested, bottom-up)
+        // Step 1: Calculate sizes for all classes
         foreach (var node in EnumerateAllTopLevel(graph))
             CalcSize(node, sizes);
 
@@ -68,7 +68,7 @@ public class LayoutEngine
         }
         result.GlobalClasses.AddRange(graph.GlobalClasses);
 
-        // Step 6: Arrow routes with orthogonal routing + spread
+        // Step 6: Arrow routes
         var eligibleEdges = graph.Edges
             .Where(e => !IsInFolderNamespace(e.Source, result.FolderNamespaces) &&
                         !IsInFolderNamespace(e.Target, result.FolderNamespaces) &&
@@ -99,7 +99,7 @@ public class LayoutEngine
             .Select(e => DetermineNaturalSides(classRects[e.Source], classRects[e.Target]))
             .ToArray();
 
-        // Group by (node, side) → list of (edgeIndex, isSrc)
+        // Group by (node, side) for spread calculation
         var groups = new Dictionary<(ClassNode node, Side side), List<(int idx, bool isSrc)>>();
         for (int i = 0; i < edges.Count; i++)
         {
@@ -108,7 +108,6 @@ public class LayoutEngine
             AddToGroup(groups, (edges[i].Target, tgtSide), (i, false));
         }
 
-        // Assign spread fractions within each group
         var srcFractions = new double[edges.Count];
         var tgtFractions = new double[edges.Count];
         foreach (var list in groups.Values)
@@ -122,7 +121,6 @@ public class LayoutEngine
             }
         }
 
-        // Route each edge
         for (int i = 0; i < edges.Count; i++)
         {
             var edge = edges[i];
@@ -133,11 +131,213 @@ public class LayoutEngine
             var srcPt = AttachPoint(srcRect, srcSide, srcFractions[i]);
             var tgtPt = AttachPoint(tgtRect, tgtSide, tgtFractions[i]);
 
-            var waypoints = RouteOrthogonal(srcPt, srcSide, tgtPt, tgtSide, srcRect, tgtRect);
+            var pts = RouteOrthogonal(srcPt, srcSide, tgtPt, tgtSide, srcRect, tgtRect);
+            var segs = PointsToSegments(pts);
             var obstacles = BuildObstacles(edge.Source, edge.Target, classRects, result);
-            waypoints = AvoidObstacles(waypoints, obstacles);
-            result.Arrows.Add(new ArrowRoute(waypoints, edge.Kind));
+            segs = AvoidObstacles(segs, obstacles);
+            segs = NormalizeSegments(segs);
+            if (segs.Count > 0)
+                result.Arrows.Add(new ArrowRoute(segs, edge.Kind));
         }
+    }
+
+    private static void AddToGroup<TKey, TVal>(
+        Dictionary<TKey, List<TVal>> dict, TKey key, TVal val) where TKey : notnull
+    {
+        if (!dict.TryGetValue(key, out var list))
+        {
+            list = new List<TVal>();
+            dict[key] = list;
+        }
+        list.Add(val);
+    }
+
+    private static (Side srcSide, Side tgtSide) DetermineNaturalSides(Rect srcRect, Rect tgtRect)
+    {
+        var dx = Center(tgtRect).X - Center(srcRect).X;
+        var dy = Center(tgtRect).Y - Center(srcRect).Y;
+        if (Math.Abs(dx) >= Math.Abs(dy))
+            return dx >= 0 ? (Side.Right, Side.Left) : (Side.Left, Side.Right);
+        return dy >= 0 ? (Side.Bottom, Side.Top) : (Side.Top, Side.Bottom);
+    }
+
+    private static Point AttachPoint(Rect rect, Side side, double fraction) => side switch
+    {
+        Side.Left   => new Point(rect.Left,  rect.Top + rect.Height * fraction),
+        Side.Right  => new Point(rect.Right, rect.Top + rect.Height * fraction),
+        Side.Top    => new Point(rect.Left + rect.Width * fraction, rect.Top),
+        Side.Bottom => new Point(rect.Left + rect.Width * fraction, rect.Bottom),
+        _ => Center(rect)
+    };
+
+    private static List<Point> RouteOrthogonal(
+        Point srcPt, Side srcSide, Point tgtPt, Side tgtSide, Rect srcRect, Rect tgtRect)
+    {
+        var pts = new List<Point> { srcPt };
+        var exitPt  = Extend(srcPt, srcSide, RoutingMargin);
+        var entryPt = Extend(tgtPt, tgtSide, RoutingMargin);
+
+        bool srcH = srcSide is Side.Left or Side.Right;
+        bool tgtH = tgtSide is Side.Left or Side.Right;
+
+        if (srcH && tgtH)
+        {
+            if (srcSide == tgtSide)
+            {
+                double extreme = srcSide == Side.Right
+                    ? Math.Max(srcRect.Right, tgtRect.Right) + 30
+                    : Math.Min(srcRect.Left, tgtRect.Left) - 30;
+                pts.Add(exitPt);
+                pts.Add(new Point(extreme, exitPt.Y));
+                pts.Add(new Point(extreme, entryPt.Y));
+                pts.Add(entryPt);
+            }
+            else
+            {
+                double midX = (exitPt.X + entryPt.X) / 2;
+                pts.Add(exitPt);
+                if (Math.Abs(exitPt.Y - entryPt.Y) < 1)
+                {
+                    pts.Add(entryPt);
+                }
+                else
+                {
+                    pts.Add(new Point(midX, exitPt.Y));
+                    pts.Add(new Point(midX, entryPt.Y));
+                    pts.Add(entryPt);
+                }
+            }
+        }
+        else if (!srcH && !tgtH)
+        {
+            if (srcSide == tgtSide)
+            {
+                double extreme = srcSide == Side.Bottom
+                    ? Math.Max(srcRect.Bottom, tgtRect.Bottom) + 30
+                    : Math.Min(srcRect.Top, tgtRect.Top) - 30;
+                pts.Add(exitPt);
+                pts.Add(new Point(exitPt.X, extreme));
+                pts.Add(new Point(entryPt.X, extreme));
+                pts.Add(entryPt);
+            }
+            else
+            {
+                double midY = (exitPt.Y + entryPt.Y) / 2;
+                pts.Add(exitPt);
+                if (Math.Abs(exitPt.X - entryPt.X) < 1)
+                {
+                    pts.Add(entryPt);
+                }
+                else
+                {
+                    pts.Add(new Point(exitPt.X, midY));
+                    pts.Add(new Point(entryPt.X, midY));
+                    pts.Add(entryPt);
+                }
+            }
+        }
+        else if (srcH)
+        {
+            pts.Add(exitPt);
+            pts.Add(new Point(entryPt.X, exitPt.Y));
+            pts.Add(entryPt);
+        }
+        else
+        {
+            pts.Add(exitPt);
+            pts.Add(new Point(exitPt.X, entryPt.Y));
+            pts.Add(entryPt);
+        }
+
+        pts.Add(tgtPt);
+        return pts;
+    }
+
+    private static Point Extend(Point pt, Side side, double margin) => side switch
+    {
+        Side.Right  => new Point(pt.X + margin, pt.Y),
+        Side.Left   => new Point(pt.X - margin, pt.Y),
+        Side.Bottom => new Point(pt.X, pt.Y + margin),
+        Side.Top    => new Point(pt.X, pt.Y - margin),
+        _ => pt
+    };
+
+    // ── Point list → RouteSegment list ──────────────────────────────
+
+    private static List<RouteSegment> PointsToSegments(List<Point> points)
+    {
+        var segs = new List<RouteSegment>();
+        for (int i = 0; i < points.Count - 1; i++)
+        {
+            var from = points[i];
+            var to   = points[i + 1];
+            var dx = to.X - from.X;
+            var dy = to.Y - from.Y;
+            if (Math.Abs(dx) >= Math.Abs(dy))
+            {
+                if (Math.Abs(dx) > 0.1)
+                    segs.Add(new RouteSegment(from.X, from.Y,
+                        dx > 0 ? Direction.Right : Direction.Left, Math.Abs(dx)));
+            }
+            else
+            {
+                if (Math.Abs(dy) > 0.1)
+                    segs.Add(new RouteSegment(from.X, from.Y,
+                        dy > 0 ? Direction.Down : Direction.Up, Math.Abs(dy)));
+            }
+        }
+        return segs;
+    }
+
+    // ── Normalize: merge same-direction, cancel opposite-direction ──
+
+    private static List<RouteSegment> NormalizeSegments(List<RouteSegment> segs)
+    {
+        var result = segs.Where(s => s.Length > 0.1).ToList();
+
+        bool changed;
+        do
+        {
+            changed = false;
+            for (int i = 0; i < result.Count - 1; i++)
+            {
+                var a = result[i];
+                var b = result[i + 1];
+
+                if (a.Direction == b.Direction)
+                {
+                    result[i] = new RouteSegment(a.X, a.Y, a.Direction, a.Length + b.Length);
+                    result.RemoveAt(i + 1);
+                    changed = true;
+                    break;
+                }
+
+                if (ArrowRoute.AreOpposite(a.Direction, b.Direction))
+                {
+                    double diff = a.Length - b.Length;
+                    if (Math.Abs(diff) < 0.1)
+                    {
+                        result.RemoveAt(i + 1);
+                        result.RemoveAt(i);
+                    }
+                    else if (diff > 0)
+                    {
+                        result[i] = new RouteSegment(a.X, a.Y, a.Direction, diff);
+                        result.RemoveAt(i + 1);
+                    }
+                    else
+                    {
+                        var ep = a.End;
+                        result[i + 1] = new RouteSegment(ep.X, ep.Y, b.Direction, -diff);
+                        result.RemoveAt(i);
+                    }
+                    changed = true;
+                    break;
+                }
+            }
+        } while (changed);
+
+        return result.Where(s => s.Length > 0.1).ToList();
     }
 
     // ── Obstacle avoidance ──────────────────────────────────────────
@@ -164,201 +364,105 @@ public class LayoutEngine
         return obstacles;
     }
 
-    private static List<Point> AvoidObstacles(List<Point> waypoints, List<Rect> obstacles)
+    private static List<RouteSegment> AvoidObstacles(List<RouteSegment> segs, List<Rect> obstacles)
     {
-        const int maxPasses = 3;
+        const int maxPasses = 5;
         for (int pass = 0; pass < maxPasses; pass++)
         {
             bool changed = false;
-            var next = new List<Point>();
-            for (int i = 0; i < waypoints.Count - 1; i++)
+            var next = new List<RouteSegment>();
+            foreach (var seg in segs)
             {
-                next.Add(waypoints[i]);
-                var bypass = TryBypassSegment(waypoints[i], waypoints[i + 1], obstacles);
+                var bypass = TryBypassSegment(seg, obstacles);
                 if (bypass != null)
                 {
                     next.AddRange(bypass);
                     changed = true;
                 }
+                else
+                {
+                    next.Add(seg);
+                }
             }
-            next.Add(waypoints[^1]);
-            waypoints = next;
+            segs = NormalizeSegments(next);
             if (!changed) break;
         }
-        return waypoints;
+        return segs;
     }
 
-    private static List<Point>? TryBypassSegment(Point p1, Point p2, List<Rect> obstacles)
+    private static List<RouteSegment>? TryBypassSegment(RouteSegment seg, List<Rect> obstacles)
     {
         foreach (var rect in obstacles)
         {
-            if (!SegmentIntersectsRect(p1, p2, rect)) continue;
-
-            if (Math.Abs(p1.Y - p2.Y) < 0.1)
-            {
-                double detour = p1.Y < rect.Top + rect.Height / 2
-                    ? rect.Top - RoutingMargin
-                    : rect.Bottom + RoutingMargin;
-                return [new Point(p1.X, detour), new Point(p2.X, detour)];
-            }
-            else
-            {
-                double detour = p1.X < rect.Left + rect.Width / 2
-                    ? rect.Left - RoutingMargin
-                    : rect.Right + RoutingMargin;
-                return [new Point(detour, p1.Y), new Point(detour, p2.Y)];
-            }
+            if (!SegmentIntersectsRect(seg, rect)) continue;
+            return GenerateBypass(seg, rect);
         }
         return null;
     }
 
-    private static bool SegmentIntersectsRect(Point p1, Point p2, Rect rect)
+    private static List<RouteSegment> GenerateBypass(RouteSegment seg, Rect rect)
     {
-        if (Math.Abs(p1.Y - p2.Y) < 0.1)
+        bool isHoriz = seg.Direction is Direction.Right or Direction.Left;
+        if (isHoriz)
         {
-            double y = p1.Y;
-            if (y <= rect.Top || y >= rect.Bottom) return false;
-            double minX = Math.Min(p1.X, p2.X);
-            double maxX = Math.Max(p1.X, p2.X);
-            return maxX > rect.Left && minX < rect.Right;
-        }
-        if (Math.Abs(p1.X - p2.X) < 0.1)
-        {
-            double x = p1.X;
-            if (x <= rect.Left || x >= rect.Right) return false;
-            double minY = Math.Min(p1.Y, p2.Y);
-            double maxY = Math.Max(p1.Y, p2.Y);
-            return maxY > rect.Top && minY < rect.Bottom;
-        }
-        return false;
-    }
-
-    private static void AddToGroup<TKey, TVal>(
-        Dictionary<TKey, List<TVal>> dict, TKey key, TVal val) where TKey : notnull
-    {
-        if (!dict.TryGetValue(key, out var list))
-        {
-            list = new List<TVal>();
-            dict[key] = list;
-        }
-        list.Add(val);
-    }
-
-    private static (Side srcSide, Side tgtSide) DetermineNaturalSides(Rect srcRect, Rect tgtRect)
-    {
-        var dx = Center(tgtRect).X - Center(srcRect).X;
-        var dy = Center(tgtRect).Y - Center(srcRect).Y;
-        if (Math.Abs(dx) >= Math.Abs(dy))
-            return dx >= 0 ? (Side.Right, Side.Left) : (Side.Left, Side.Right);
-        return dy >= 0 ? (Side.Bottom, Side.Top) : (Side.Top, Side.Bottom);
-    }
-
-    private static Point AttachPoint(Rect rect, Side side, double fraction) => side switch
-    {
-        Side.Left => new Point(rect.Left, rect.Top + rect.Height * fraction),
-        Side.Right => new Point(rect.Right, rect.Top + rect.Height * fraction),
-        Side.Top => new Point(rect.Left + rect.Width * fraction, rect.Top),
-        Side.Bottom => new Point(rect.Left + rect.Width * fraction, rect.Bottom),
-        _ => Center(rect)
-    };
-
-    private static List<Point> RouteOrthogonal(
-        Point srcPt, Side srcSide, Point tgtPt, Side tgtSide, Rect srcRect, Rect tgtRect)
-    {
-        var pts = new List<Point> { srcPt };
-        var exitPt = Extend(srcPt, srcSide, RoutingMargin);
-        var entryPt = Extend(tgtPt, tgtSide, RoutingMargin);
-
-        bool srcH = srcSide is Side.Left or Side.Right;
-        bool tgtH = tgtSide is Side.Left or Side.Right;
-
-        if (srcH && tgtH)
-        {
-            if (srcSide == tgtSide)
-            {
-                // U-shape (same horizontal side)
-                double extreme = srcSide == Side.Right
-                    ? Math.Max(srcRect.Right, tgtRect.Right) + 30
-                    : Math.Min(srcRect.Left, tgtRect.Left) - 30;
-                pts.Add(exitPt);
-                pts.Add(new Point(extreme, exitPt.Y));
-                pts.Add(new Point(extreme, entryPt.Y));
-                pts.Add(entryPt);
-            }
-            else
-            {
-                // Z-shape (opposite horizontal sides)
-                double midX = (exitPt.X + entryPt.X) / 2;
-                pts.Add(exitPt);
-                if (Math.Abs(exitPt.Y - entryPt.Y) < 1)
-                {
-                    pts.Add(entryPt);
-                }
-                else
-                {
-                    pts.Add(new Point(midX, exitPt.Y));
-                    pts.Add(new Point(midX, entryPt.Y));
-                    pts.Add(entryPt);
-                }
-            }
-        }
-        else if (!srcH && !tgtH)
-        {
-            if (srcSide == tgtSide)
-            {
-                // U-shape (same vertical side)
-                double extreme = srcSide == Side.Bottom
-                    ? Math.Max(srcRect.Bottom, tgtRect.Bottom) + 30
-                    : Math.Min(srcRect.Top, tgtRect.Top) - 30;
-                pts.Add(exitPt);
-                pts.Add(new Point(exitPt.X, extreme));
-                pts.Add(new Point(entryPt.X, extreme));
-                pts.Add(entryPt);
-            }
-            else
-            {
-                // Z-shape (opposite vertical sides)
-                double midY = (exitPt.Y + entryPt.Y) / 2;
-                pts.Add(exitPt);
-                if (Math.Abs(exitPt.X - entryPt.X) < 1)
-                {
-                    pts.Add(entryPt);
-                }
-                else
-                {
-                    pts.Add(new Point(exitPt.X, midY));
-                    pts.Add(new Point(entryPt.X, midY));
-                    pts.Add(entryPt);
-                }
-            }
-        }
-        else if (srcH)
-        {
-            // Source horizontal, target vertical: L-shape
-            pts.Add(exitPt);
-            pts.Add(new Point(entryPt.X, exitPt.Y));
-            pts.Add(entryPt);
+            double y   = seg.Y;
+            double x1  = seg.X;
+            double x2  = seg.End.X;
+            double detourY = y < rect.Top + rect.Height / 2
+                ? rect.Top    - RoutingMargin
+                : rect.Bottom + RoutingMargin;
+            var vertOut  = detourY < y ? Direction.Up   : Direction.Down;
+            var vertBack = detourY < y ? Direction.Down : Direction.Up;
+            double vLen = Math.Abs(y - detourY);
+            double hLen = Math.Abs(x2 - x1);
+            return
+            [
+                new RouteSegment(x1, y,       vertOut,       vLen),
+                new RouteSegment(x1, detourY, seg.Direction, hLen),
+                new RouteSegment(x2, detourY, vertBack,      vLen),
+            ];
         }
         else
         {
-            // Source vertical, target horizontal: L-shape
-            pts.Add(exitPt);
-            pts.Add(new Point(exitPt.X, entryPt.Y));
-            pts.Add(entryPt);
+            double x   = seg.X;
+            double y1  = seg.Y;
+            double y2  = seg.End.Y;
+            double detourX = x < rect.Left + rect.Width / 2
+                ? rect.Left  - RoutingMargin
+                : rect.Right + RoutingMargin;
+            var horizOut  = detourX < x ? Direction.Left  : Direction.Right;
+            var horizBack = detourX < x ? Direction.Right : Direction.Left;
+            double hLen = Math.Abs(x - detourX);
+            double vLen = Math.Abs(y2 - y1);
+            return
+            [
+                new RouteSegment(x,       y1, horizOut,      hLen),
+                new RouteSegment(detourX, y1, seg.Direction, vLen),
+                new RouteSegment(detourX, y2, horizBack,     hLen),
+            ];
         }
-
-        pts.Add(tgtPt);
-        return pts;
     }
 
-    private static Point Extend(Point pt, Side side, double margin) => side switch
+    private static bool SegmentIntersectsRect(RouteSegment seg, Rect rect)
     {
-        Side.Right => new Point(pt.X + margin, pt.Y),
-        Side.Left => new Point(pt.X - margin, pt.Y),
-        Side.Bottom => new Point(pt.X, pt.Y + margin),
-        Side.Top => new Point(pt.X, pt.Y - margin),
-        _ => pt
-    };
+        bool isHoriz = seg.Direction is Direction.Right or Direction.Left;
+        if (isHoriz)
+        {
+            double y = seg.Y;
+            if (y <= rect.Top || y >= rect.Bottom) return false;
+            double minX = Math.Min(seg.X, seg.End.X);
+            double maxX = Math.Max(seg.X, seg.End.X);
+            return maxX > rect.Left && minX < rect.Right;
+        }
+        else
+        {
+            double x = seg.X;
+            if (x <= rect.Left || x >= rect.Right) return false;
+            double minY = Math.Min(seg.Y, seg.End.Y);
+            double maxY = Math.Max(seg.Y, seg.End.Y);
+            return maxY > rect.Top && minY < rect.Bottom;
+        }
+    }
 
     // ── Size calculation ────────────────────────────────────────────
 
@@ -401,7 +505,7 @@ public class LayoutEngine
         return new Size(nsW, nsH);
     }
 
-    // ── Class placement (absolute, recursive) ───────────────────────
+    // ── Class placement ─────────────────────────────────────────────
 
     private static void PlaceClass(
         ClassNode node, double ax, double ay,

@@ -3,6 +3,9 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+# Debug/test project for local use only
+DebugProject/
+
 # dotenv files
 .env
 

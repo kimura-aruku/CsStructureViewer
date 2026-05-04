@@ -16,6 +16,11 @@ public class SettingsManager
         "bin", "obj", ".git", "Editor", "Temp", "temp", "Tests"
     ];
 
+    private static readonly List<string> DefaultInternalExcludePatterns =
+    [
+        "Library"
+    ];
+
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public AppSettings Load()
@@ -45,6 +50,7 @@ public class SettingsManager
     {
         var settings = new AppSettings();
         settings.ExcludePatterns.AddRange(DefaultExcludePatterns);
+        settings.InternalExcludePatterns.AddRange(DefaultInternalExcludePatterns);
         Save(settings);
         return settings;
     }

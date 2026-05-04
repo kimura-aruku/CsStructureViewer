@@ -6,6 +6,7 @@ using System.Windows.Shapes;
 using CsStructureViewer.Helpers;
 using CsStructureViewer.Layout;
 using CsStructureViewer.Models;
+using WpfLineSegment = System.Windows.Media.LineSegment;
 
 namespace CsStructureViewer.Rendering;
 
@@ -230,24 +231,33 @@ public class GraphCanvas : FrameworkElement
 
     private void DrawArrow(ArrowRoute arrow)
     {
-        if (arrow.Waypoints.Count < 2) return;
+        if (arrow.Segments.Count == 0) return;
 
-        var penultimate = arrow.Waypoints[^2];
-        var angle = Math.Atan2(arrow.End.Y - penultimate.Y, arrow.End.X - penultimate.X);
+        var lastSeg = arrow.Segments[^1];
+        var end = arrow.End;
+        double angle = lastSeg.Direction switch
+        {
+            Direction.Right => 0.0,
+            Direction.Down  => Math.PI / 2,
+            Direction.Left  => Math.PI,
+            Direction.Up    => -Math.PI / 2,
+            _ => 0.0
+        };
+
         const double arrowLen = 13.0;
         const double halfAngle = Math.PI / 6;
 
         var isTriangle = arrow.Kind != DependencyKind.FieldReference;
         var lineEnd = isTriangle
-            ? new Point(arrow.End.X - arrowLen * Math.Cos(angle),
-                        arrow.End.Y - arrowLen * Math.Sin(angle))
-            : arrow.End;
+            ? new Point(end.X - arrowLen * Math.Cos(angle),
+                        end.Y - arrowLen * Math.Sin(angle))
+            : end;
 
-        // Shaft (polyline through waypoints)
+        // Shaft: Start → intermediate ends → lineEnd
         var fig = new PathFigure { StartPoint = arrow.Start };
-        for (int i = 1; i < arrow.Waypoints.Count - 1; i++)
-            fig.Segments.Add(new LineSegment(arrow.Waypoints[i], isStroked: true));
-        fig.Segments.Add(new LineSegment(lineEnd, isStroked: true));
+        for (int i = 0; i < arrow.Segments.Count - 1; i++)
+            fig.Segments.Add(new WpfLineSegment(arrow.Segments[i].End, isStroked: true));
+        fig.Segments.Add(new WpfLineSegment(lineEnd, isStroked: true));
 
         var geom = new PathGeometry();
         geom.Figures.Add(fig);
@@ -264,25 +274,25 @@ public class GraphCanvas : FrameworkElement
         _inner.Children.Add(shaft);
 
         // Arrowhead
-        var left = new Point(arrow.End.X - arrowLen * Math.Cos(angle - halfAngle),
-                             arrow.End.Y - arrowLen * Math.Sin(angle - halfAngle));
-        var right = new Point(arrow.End.X - arrowLen * Math.Cos(angle + halfAngle),
-                              arrow.End.Y - arrowLen * Math.Sin(angle + halfAngle));
+        var left  = new Point(end.X - arrowLen * Math.Cos(angle - halfAngle),
+                              end.Y - arrowLen * Math.Sin(angle - halfAngle));
+        var right = new Point(end.X - arrowLen * Math.Cos(angle + halfAngle),
+                              end.Y - arrowLen * Math.Sin(angle + halfAngle));
 
         var headGeom = new PathGeometry();
         if (isTriangle)
         {
             var hf = new PathFigure { StartPoint = left, IsClosed = true };
-            hf.Segments.Add(new LineSegment(arrow.End, isStroked: true));
-            hf.Segments.Add(new LineSegment(right, isStroked: true));
+            hf.Segments.Add(new WpfLineSegment(end, isStroked: true));
+            hf.Segments.Add(new WpfLineSegment(right, isStroked: true));
             headGeom.Figures.Add(hf);
         }
         else
         {
             var f1 = new PathFigure { StartPoint = left };
-            f1.Segments.Add(new LineSegment(arrow.End, isStroked: true));
+            f1.Segments.Add(new WpfLineSegment(end, isStroked: true));
             var f2 = new PathFigure { StartPoint = right };
-            f2.Segments.Add(new LineSegment(arrow.End, isStroked: true));
+            f2.Segments.Add(new WpfLineSegment(end, isStroked: true));
             headGeom.Figures.Add(f1);
             headGeom.Figures.Add(f2);
         }
