@@ -45,8 +45,8 @@
 
 ## フェーズ8: ViewModel層の実装
 
-- [ ] `MainViewModel` の実装（OpenProjectCommand / IsAnalyzing / CancelCommand / LayoutResult）
-- [ ] `SettingsViewModel` の実装（除外パターンリストのCRUD）
+- [x] `MainViewModel` の実装（OpenProjectCommand / IsAnalyzing / CancelCommand / LayoutResult）
+- [x] `SettingsViewModel` の実装（除外パターンリストのCRUD）
 
 ## フェーズ9: View層の実装
 
