@@ -140,8 +140,103 @@ public class LayoutEngine
             var tgtPt = AttachPoint(tgtRect, tgtSide, tgtFractions[i]);
 
             var waypoints = RouteOrthogonal(srcPt, srcSide, tgtPt, tgtSide, srcRect, tgtRect);
+            var obstacles = BuildObstacles(edge.Source, edge.Target, classRects, result);
+            waypoints = AvoidObstacles(waypoints, obstacles);
             result.Arrows.Add(new ArrowRoute(waypoints, edge.Kind));
         }
+    }
+
+    // ── Obstacle avoidance ──────────────────────────────────────────
+
+    private static List<Rect> BuildObstacles(
+        ClassNode src, ClassNode tgt,
+        Dictionary<ClassNode, Rect> classRects,
+        LayoutResult result)
+    {
+        var srcNs = result.NamespaceOrder.FirstOrDefault(ns => ns.Classes.Contains(src));
+        var tgtNs = result.NamespaceOrder.FirstOrDefault(ns => ns.Classes.Contains(tgt));
+
+        var obstacles = new List<Rect>();
+        foreach (var kv in classRects)
+        {
+            if (kv.Key == src || kv.Key == tgt) continue;
+            obstacles.Add(kv.Value);
+        }
+        foreach (var kv in result.NamespaceRects)
+        {
+            if (kv.Key == srcNs || kv.Key == tgtNs) continue;
+            obstacles.Add(kv.Value);
+        }
+        return obstacles;
+    }
+
+    private static List<Point> AvoidObstacles(List<Point> waypoints, List<Rect> obstacles)
+    {
+        const int maxPasses = 3;
+        for (int pass = 0; pass < maxPasses; pass++)
+        {
+            bool changed = false;
+            var next = new List<Point>();
+            for (int i = 0; i < waypoints.Count - 1; i++)
+            {
+                next.Add(waypoints[i]);
+                var bypass = TryBypassSegment(waypoints[i], waypoints[i + 1], obstacles);
+                if (bypass != null)
+                {
+                    next.AddRange(bypass);
+                    changed = true;
+                }
+            }
+            next.Add(waypoints[^1]);
+            waypoints = next;
+            if (!changed) break;
+        }
+        return waypoints;
+    }
+
+    private static List<Point>? TryBypassSegment(Point p1, Point p2, List<Rect> obstacles)
+    {
+        foreach (var rect in obstacles)
+        {
+            if (!SegmentIntersectsRect(p1, p2, rect)) continue;
+
+            if (Math.Abs(p1.Y - p2.Y) < 0.1)
+            {
+                double detour = p1.Y < rect.Top + rect.Height / 2
+                    ? rect.Top - RoutingMargin
+                    : rect.Bottom + RoutingMargin;
+                return [new Point(p1.X, detour), new Point(p2.X, detour)];
+            }
+            else
+            {
+                double detour = p1.X < rect.Left + rect.Width / 2
+                    ? rect.Left - RoutingMargin
+                    : rect.Right + RoutingMargin;
+                return [new Point(detour, p1.Y), new Point(detour, p2.Y)];
+            }
+        }
+        return null;
+    }
+
+    private static bool SegmentIntersectsRect(Point p1, Point p2, Rect rect)
+    {
+        if (Math.Abs(p1.Y - p2.Y) < 0.1)
+        {
+            double y = p1.Y;
+            if (y <= rect.Top || y >= rect.Bottom) return false;
+            double minX = Math.Min(p1.X, p2.X);
+            double maxX = Math.Max(p1.X, p2.X);
+            return maxX > rect.Left && minX < rect.Right;
+        }
+        if (Math.Abs(p1.X - p2.X) < 0.1)
+        {
+            double x = p1.X;
+            if (x <= rect.Left || x >= rect.Right) return false;
+            double minY = Math.Min(p1.Y, p2.Y);
+            double maxY = Math.Max(p1.Y, p2.Y);
+            return maxY > rect.Top && minY < rect.Bottom;
+        }
+        return false;
     }
 
     private static void AddToGroup<TKey, TVal>(
