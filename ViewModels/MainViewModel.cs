@@ -85,7 +85,7 @@ public class MainViewModel : INotifyPropertyChanged
         {
             var graph = await _analyzer.AnalyzeAsync(
                 folderPath, Settings, cancellationToken: _cts.Token);
-            LayoutResult = _layoutEngine.Calculate(graph, Settings, CanvasWidth);
+            LayoutResult = _layoutEngine.Calculate(graph, CanvasWidth);
         }
         catch (OperationCanceledException) { }
         finally

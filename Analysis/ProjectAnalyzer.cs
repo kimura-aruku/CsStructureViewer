@@ -19,6 +19,7 @@ public class ProjectAnalyzer
 
         var allNodes = new List<ClassNode>();
         var allRawDeps = new List<RawDependency>();
+        var internalNamespaces = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var file in files)
         {
@@ -28,6 +29,12 @@ public class ProjectAnalyzer
             var code = await File.ReadAllTextAsync(file, cancellationToken);
             var tree = CSharpSyntaxTree.ParseText(code, cancellationToken: cancellationToken);
             var (nodes, rawDeps) = _classAnalyzer.Analyze(tree);
+
+            if (settings.InternalExcludePatterns.Any(p => IsInMatchingFolder(file, p)))
+                foreach (var node in nodes)
+                    if (node.NamespaceName != null)
+                        internalNamespaces.Add(node.NamespaceName);
+
             allNodes.AddRange(nodes);
             allRawDeps.AddRange(rawDeps);
         }
@@ -36,8 +43,13 @@ public class ProjectAnalyzer
         var lookup = BuildLookup(mergedNodes);
         var edges = ResolveEdges(allRawDeps, lookup);
 
-        return BuildGraph(mergedNodes, edges);
+        return BuildGraph(mergedNodes, edges, internalNamespaces);
     }
+
+    private static bool IsInMatchingFolder(string filePath, string pattern) =>
+        !string.IsNullOrEmpty(pattern) &&
+        filePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Any(seg => seg.Equals(pattern, StringComparison.OrdinalIgnoreCase));
 
     private static IEnumerable<string> GetCsFiles(string rootPath, List<string> excludePatterns)
     {
@@ -99,13 +111,18 @@ public class ProjectAnalyzer
         return edges;
     }
 
-    private static ProjectGraph BuildGraph(List<ClassNode> nodes, List<DependencyEdge> edges)
+    private static ProjectGraph BuildGraph(
+        List<ClassNode> nodes, List<DependencyEdge> edges, HashSet<string> internalNamespaces)
     {
         var graph = new ProjectGraph();
 
         foreach (var group in nodes.Where(n => n.NamespaceName != null).GroupBy(n => n.NamespaceName!))
         {
-            var ns = new NamespaceNode { Name = group.Key };
+            var ns = new NamespaceNode
+            {
+                Name = group.Key,
+                IsInternal = internalNamespaces.Contains(group.Key)
+            };
             ns.Classes.AddRange(group);
             graph.Namespaces.Add(ns);
         }

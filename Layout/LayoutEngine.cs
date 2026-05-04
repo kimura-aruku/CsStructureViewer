@@ -1,6 +1,5 @@
 using System.Windows;
 using CsStructureViewer.Models;
-using CsStructureViewer.Settings;
 
 namespace CsStructureViewer.Layout;
 
@@ -22,7 +21,7 @@ public class LayoutEngine
     private const double MaxNsWidth = 600.0;
     private const double RoutingMargin = 18.0;
 
-    public LayoutResult Calculate(ProjectGraph graph, AppSettings settings, double canvasMaxWidth)
+    public LayoutResult Calculate(ProjectGraph graph, double canvasMaxWidth)
     {
         var result = new LayoutResult();
         var sizes = new Dictionary<ClassNode, Size>();
@@ -30,7 +29,7 @@ public class LayoutEngine
         // Identify folder namespaces
         foreach (var ns in graph.Namespaces)
         {
-            if (settings.InternalExcludePatterns.Any(p => MatchesNamespacePattern(ns.Name, p)))
+            if (ns.IsInternal)
                 result.FolderNamespaces.Add(ns);
         }
 
@@ -83,11 +82,6 @@ public class LayoutEngine
     }
 
     // ── Pattern matching ────────────────────────────────────────────
-
-    private static bool MatchesNamespacePattern(string namespaceName, string pattern) =>
-        !string.IsNullOrEmpty(pattern) &&
-        (namespaceName.Equals(pattern, StringComparison.OrdinalIgnoreCase) ||
-         namespaceName.StartsWith(pattern + ".", StringComparison.OrdinalIgnoreCase));
 
     private static bool IsInFolderNamespace(ClassNode cls, HashSet<NamespaceNode> folderNamespaces) =>
         folderNamespaces.Any(fn => fn.Classes.Contains(cls));
