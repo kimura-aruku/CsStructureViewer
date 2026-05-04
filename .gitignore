@@ -3,6 +3,15 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+# Published output at project root
+CsStructureViewer.exe
+CsStructureViewer.dll
+CsStructureViewer.pdb
+CsStructureViewer.deps.json
+CsStructureViewer.runtimeconfig.json
+Microsoft.CodeAnalysis.dll
+Microsoft.CodeAnalysis.CSharp.dll
+
 # dotenv files
 .env
 
