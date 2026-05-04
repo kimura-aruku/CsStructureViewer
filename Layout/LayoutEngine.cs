@@ -364,22 +364,10 @@ public class LayoutEngine
 
     private static void CalcSize(ClassNode node, Dictionary<ClassNode, Size> sizes)
     {
-        foreach (var nested in node.NestedClasses)
-            CalcSize(nested, sizes);
-
         var textW = node.Name.Length * CharWidth;
         double lines = textW <= MaxTextWidth ? 1 : Math.Ceiling(textW / MaxTextWidth);
         double w = Math.Clamp(Math.Min(textW, MaxTextWidth) + ClassPadH * 2, MinClassWidth, MaxClassWidth);
         double h = lines * LineHeight + ClassPadV * 2;
-
-        if (node.NestedClasses.Count > 0)
-        {
-            var nestedH = node.NestedClasses.Sum(n => sizes[n].Height + ClassGap);
-            var nestedW = node.NestedClasses.Max(n => sizes[n].Width) + NsPadding * 2;
-            h += nestedH + NsPadding;
-            w = Math.Max(w, nestedW);
-        }
-
         sizes[node] = new Size(w, h);
     }
 
@@ -421,14 +409,6 @@ public class LayoutEngine
     {
         var sz = sizes[node];
         classRects[node] = new Rect(ax, ay, sz.Width, sz.Height);
-
-        double nestedY = ay + LineHeight + ClassPadV * 2;
-        double nestedX = ax + NsPadding;
-        foreach (var nested in node.NestedClasses)
-        {
-            PlaceClass(nested, nestedX, nestedY, sizes, classRects);
-            nestedY += sizes[nested].Height + ClassGap;
-        }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────

@@ -224,9 +224,6 @@ public class GraphCanvas : FrameworkElement
         Panel.SetZIndex(border, 10);
         _inner.Children.Add(border);
 
-        var nestedColor = DarkenColor(color, 0.08);
-        foreach (var nested in cls.NestedClasses)
-            DrawClassRect(nested, rects, nestedColor);
     }
 
     // ── Arrow drawing ────────────────────────────────────────────────
