@@ -1,0 +1,288 @@
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Shapes;
+using CsStructureViewer.Helpers;
+using CsStructureViewer.Layout;
+using CsStructureViewer.Models;
+
+namespace CsStructureViewer.Rendering;
+
+public class GraphCanvas : FrameworkElement
+{
+    public static readonly DependencyProperty LayoutResultProperty =
+        DependencyProperty.Register(nameof(LayoutResult), typeof(LayoutResult), typeof(GraphCanvas),
+            new PropertyMetadata(null, (d, e) => ((GraphCanvas)d).Render((LayoutResult?)e.NewValue)));
+
+    public LayoutResult? LayoutResult
+    {
+        get => (LayoutResult?)GetValue(LayoutResultProperty);
+        set => SetValue(LayoutResultProperty, value);
+    }
+
+    private readonly Canvas _outer;
+    private readonly Canvas _inner;
+    private readonly ScaleTransform _scale = new(1, 1);
+    private readonly TranslateTransform _translate = new(0, 0);
+    private bool _isPanning;
+    private Point _panStart;
+    private Vector _translateOrigin;
+
+    private static readonly Color GlobalClassColor = Color.FromRgb(180, 185, 195);
+
+    public GraphCanvas()
+    {
+        var group = new TransformGroup();
+        group.Children.Add(_scale);
+        group.Children.Add(_translate);
+
+        _inner = new Canvas { RenderTransform = group };
+        _outer = new Canvas { ClipToBounds = true, Background = Brushes.Transparent };
+        _outer.Children.Add(_inner);
+
+        AddVisualChild(_outer);
+        AddLogicalChild(_outer);
+
+        _outer.MouseWheel += OnMouseWheel;
+        _outer.MouseLeftButtonDown += OnMouseDown;
+        _outer.MouseLeftButtonUp += OnMouseUp;
+        _outer.MouseMove += OnMouseMove;
+    }
+
+    protected override int VisualChildrenCount => 1;
+    protected override Visual GetVisualChild(int index) => _outer;
+
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        _outer.Measure(availableSize);
+        return availableSize;
+    }
+
+    protected override Size ArrangeOverride(Size finalSize)
+    {
+        _outer.Arrange(new Rect(finalSize));
+        return finalSize;
+    }
+
+    // ── Render ───────────────────────────────────────────────────────
+
+    private void Render(LayoutResult? result)
+    {
+        _inner.Children.Clear();
+        if (result == null) return;
+
+        var total = result.NamespaceOrder.Count;
+
+        // Layer 1: namespace rects
+        for (var i = 0; i < total; i++)
+        {
+            var ns = result.NamespaceOrder[i];
+            var (nsColor, _) = ColorPalette.GetColors(i, total);
+            DrawNamespaceRect(ns, result.NamespaceRects[ns], nsColor);
+        }
+
+        // Layer 2: arrows
+        foreach (var arrow in result.Arrows)
+            DrawArrow(arrow);
+
+        // Layer 3: class rects (namespace classes)
+        for (var i = 0; i < total; i++)
+        {
+            var ns = result.NamespaceOrder[i];
+            var (_, classColor) = ColorPalette.GetColors(i, total);
+            foreach (var cls in ns.Classes)
+                DrawClassRect(cls, result.ClassRects, classColor);
+        }
+
+        // Layer 3: class rects (global classes)
+        foreach (var cls in result.GlobalClasses)
+            DrawClassRect(cls, result.ClassRects, GlobalClassColor);
+    }
+
+    // ── Namespace drawing ────────────────────────────────────────────
+
+    private void DrawNamespaceRect(NamespaceNode ns, Rect rect, Color color)
+    {
+        var solidColor = Color.FromArgb(255, color.R, color.G, color.B);
+
+        var border = new Border
+        {
+            Width = rect.Width,
+            Height = rect.Height,
+            Background = new SolidColorBrush(color),
+            BorderBrush = new SolidColorBrush(solidColor),
+            BorderThickness = new Thickness(1.5),
+            CornerRadius = new CornerRadius(4)
+        };
+        Canvas.SetLeft(border, rect.X);
+        Canvas.SetTop(border, rect.Y);
+        _inner.Children.Add(border);
+
+        // Label overlapping the top border
+        var label = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(230, color.R, color.G, color.B)),
+            BorderBrush = new SolidColorBrush(solidColor),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(6, 1, 6, 1),
+            Child = new TextBlock
+            {
+                Text = ns.Name,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.DarkSlateGray
+            }
+        };
+        label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        Canvas.SetLeft(label, rect.X + 12);
+        Canvas.SetTop(label, rect.Y - label.DesiredSize.Height / 2);
+        _inner.Children.Add(label);
+    }
+
+    // ── Class drawing ────────────────────────────────────────────────
+
+    private void DrawClassRect(
+        ClassNode cls, Dictionary<ClassNode, Rect> rects, Color color)
+    {
+        if (!rects.TryGetValue(cls, out var rect)) return;
+
+        var borderColor = DarkenColor(color, 0.25);
+        var border = new Border
+        {
+            Width = rect.Width,
+            Height = rect.Height,
+            Background = new SolidColorBrush(color),
+            BorderBrush = new SolidColorBrush(borderColor),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3),
+            Child = new TextBlock
+            {
+                Text = cls.Name,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top,
+                Foreground = Brushes.Black,
+                Padding = new Thickness(4, 4, 4, 0)
+            }
+        };
+        Canvas.SetLeft(border, rect.X);
+        Canvas.SetTop(border, rect.Y);
+        Panel.SetZIndex(border, 10);
+        _inner.Children.Add(border);
+
+        var nestedColor = DarkenColor(color, 0.08);
+        foreach (var nested in cls.NestedClasses)
+            DrawClassRect(nested, rects, nestedColor);
+    }
+
+    // ── Arrow drawing ────────────────────────────────────────────────
+
+    private void DrawArrow(ArrowRoute arrow)
+    {
+        var angle = Math.Atan2(arrow.End.Y - arrow.Start.Y, arrow.End.X - arrow.Start.X);
+        const double arrowLen = 13.0;
+        const double halfAngle = Math.PI / 6;
+
+        var isTriangle = arrow.Kind != DependencyKind.FieldReference;
+        var lineEnd = isTriangle
+            ? new Point(arrow.End.X - arrowLen * Math.Cos(angle),
+                        arrow.End.Y - arrowLen * Math.Sin(angle))
+            : arrow.End;
+
+        // Shaft
+        var shaft = new Path
+        {
+            Data = new LineGeometry(arrow.Start, lineEnd),
+            Stroke = Brushes.DimGray,
+            StrokeThickness = 1.5
+        };
+        if (arrow.Kind == DependencyKind.Implementation)
+            shaft.StrokeDashArray = new DoubleCollection([5, 3]);
+        Panel.SetZIndex(shaft, 5);
+        _inner.Children.Add(shaft);
+
+        // Arrowhead
+        var left = new Point(arrow.End.X - arrowLen * Math.Cos(angle - halfAngle),
+                             arrow.End.Y - arrowLen * Math.Sin(angle - halfAngle));
+        var right = new Point(arrow.End.X - arrowLen * Math.Cos(angle + halfAngle),
+                              arrow.End.Y - arrowLen * Math.Sin(angle + halfAngle));
+
+        var headGeom = new PathGeometry();
+        if (isTriangle)
+        {
+            var fig = new PathFigure { StartPoint = left, IsClosed = true };
+            fig.Segments.Add(new LineSegment(arrow.End, isStroked: true));
+            fig.Segments.Add(new LineSegment(right, isStroked: true));
+            headGeom.Figures.Add(fig);
+        }
+        else
+        {
+            var f1 = new PathFigure { StartPoint = left };
+            f1.Segments.Add(new LineSegment(arrow.End, isStroked: true));
+            var f2 = new PathFigure { StartPoint = right };
+            f2.Segments.Add(new LineSegment(arrow.End, isStroked: true));
+            headGeom.Figures.Add(f1);
+            headGeom.Figures.Add(f2);
+        }
+
+        var head = new Path
+        {
+            Data = headGeom,
+            Stroke = Brushes.DimGray,
+            StrokeThickness = 1.5,
+            Fill = isTriangle ? Brushes.White : Brushes.Transparent
+        };
+        Panel.SetZIndex(head, 5);
+        _inner.Children.Add(head);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────
+
+    private static Color DarkenColor(Color c, double amount) =>
+        Color.FromArgb(c.A,
+            (byte)Math.Max(0, c.R - (int)(255 * amount)),
+            (byte)Math.Max(0, c.G - (int)(255 * amount)),
+            (byte)Math.Max(0, c.B - (int)(255 * amount)));
+
+    // ── Zoom ─────────────────────────────────────────────────────────
+
+    private void OnMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        var factor = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
+        var mouse = e.GetPosition(_outer);
+        var newScale = Math.Clamp(_scale.ScaleX * factor, 0.05, 20.0);
+        factor = newScale / _scale.ScaleX;
+
+        _translate.X = mouse.X * (1 - factor) + _translate.X * factor;
+        _translate.Y = mouse.Y * (1 - factor) + _translate.Y * factor;
+        _scale.ScaleX = newScale;
+        _scale.ScaleY = newScale;
+    }
+
+    // ── Pan ──────────────────────────────────────────────────────────
+
+    private void OnMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        _isPanning = true;
+        _panStart = e.GetPosition(_outer);
+        _translateOrigin = new Vector(_translate.X, _translate.Y);
+        _outer.CaptureMouse();
+    }
+
+    private void OnMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isPanning) return;
+        var pos = e.GetPosition(_outer);
+        _translate.X = _translateOrigin.X + (pos.X - _panStart.X);
+        _translate.Y = _translateOrigin.Y + (pos.Y - _panStart.Y);
+    }
+
+    private void OnMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        _isPanning = false;
+        _outer.ReleaseMouseCapture();
+    }
+}

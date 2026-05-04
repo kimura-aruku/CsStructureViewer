@@ -36,12 +36,12 @@
 
 ## フェーズ7: Rendering層の実装
 
-- [ ] `GraphCanvas` の基盤実装（Canvas入れ子構造、LayoutResult受け取り）
-- [ ] 名前空間矩形の描画（半透明塗りつぶし、枠上テキスト）
-- [ ] クラス矩形の描画（可変サイズ、最大幅折り返し、ネストクラス）
-- [ ] UML矢印の描画（汎化・実現・関連の3種）
-- [ ] ズーム操作の実装（ホイール + ScaleTransform）
-- [ ] パン操作の実装（左クリック+ドラッグ + TranslateTransform）
+- [x] `GraphCanvas` の基盤実装（Canvas入れ子構造、LayoutResult受け取り）
+- [x] 名前空間矩形の描画（半透明塗りつぶし、枠上テキスト）
+- [x] クラス矩形の描画（可変サイズ、最大幅折り返し、ネストクラス）
+- [x] UML矢印の描画（汎化・実現・関連の3種）
+- [x] ズーム操作の実装（ホイール + ScaleTransform）
+- [x] パン操作の実装（左クリック+ドラッグ + TranslateTransform）
 
 ## フェーズ8: ViewModel層の実装
 

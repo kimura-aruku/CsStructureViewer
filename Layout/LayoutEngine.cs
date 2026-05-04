@@ -44,6 +44,7 @@ public class LayoutEngine
             // Re-place with actual origin
             CalcNamespaceLayout(ns, sizes, result.ClassRects, originX: x, originY: y);
             result.NamespaceRects[ns] = new Rect(x, y, nsSize.Width, nsSize.Height);
+            result.NamespaceOrder.Add(ns);
 
             x += nsSize.Width + NsGap;
             rowH = Math.Max(rowH, nsSize.Height);
@@ -57,6 +58,7 @@ public class LayoutEngine
             PlaceClass(node, gx, globalY, sizes, result.ClassRects);
             gx += sizes[node].Width + ClassGap;
         }
+        result.GlobalClasses.AddRange(graph.GlobalClasses);
 
         // Step 6: Arrow routes
         foreach (var edge in graph.Edges)
