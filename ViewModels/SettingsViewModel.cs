@@ -21,8 +21,12 @@ public class SettingsViewModel
             Patterns.Add(CreateItem(p));
     }
 
-    private ExcludePatternItem CreateItem(string pattern) =>
-        new(pattern, AddAfter, Remove);
+    private ExcludePatternItem CreateItem(string pattern)
+    {
+        var item = new ExcludePatternItem(pattern, AddAfter, Remove);
+        item.PropertyChanged += (_, _) => Save();
+        return item;
+    }
 
     private void AddAfter(ExcludePatternItem item)
     {

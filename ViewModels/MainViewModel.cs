@@ -28,6 +28,9 @@ public class MainViewModel : INotifyPropertyChanged
         private set => SetField(ref _isAnalyzing, value);
     }
 
+    public bool ShowWelcome => LayoutResult is null;
+    public bool ShowGraph => LayoutResult is not null;
+
     public AppSettings Settings { get; }
     public AsyncRelayCommand OpenProjectCommand { get; }
     public RelayCommand CancelCommand { get; }
@@ -72,5 +75,10 @@ public class MainViewModel : INotifyPropertyChanged
         if (EqualityComparer<T>.Default.Equals(field, value)) return;
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        if (name == nameof(LayoutResult))
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowWelcome)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowGraph)));
+        }
     }
 }
