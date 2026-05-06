@@ -22,6 +22,8 @@ public class LayoutEngine
     private const double NsGap = 20.0;
     private const double MaxNsWidth = 600.0;
     private const double RoutingMargin = 18.0;
+    private const double FolderMinWidth = 140.0;
+    private const double FolderHeight = 54.0;
 
     public LayoutResult Calculate(ProjectGraph graph, double canvasMaxWidth)
     {
@@ -876,6 +878,9 @@ public class LayoutEngine
         NamespaceNode ns, Dictionary<ClassNode, Size> sizes,
         Dictionary<ClassNode, Rect> classRects, double originX, double originY)
     {
+        if (ns.IsInternal)
+            return CalcFolderNamespaceSize(ns);
+
         double cx = NsPadding, cy = NsLabelHeight + NsPadding;
         double rowH = 0, maxRight = NsPadding;
 
@@ -898,6 +903,12 @@ public class LayoutEngine
         var nsW = Math.Max(maxRight + NsPadding, 120.0);
         var nsH = cy + rowH + NsPadding;
         return new Size(nsW, nsH);
+    }
+
+    private static Size CalcFolderNamespaceSize(NamespaceNode ns)
+    {
+        var labelWidth = ns.Name.Length * CharWidth + NsPadding * 2;
+        return new Size(Math.Max(labelWidth, FolderMinWidth), FolderHeight);
     }
 
     // ── Class placement ─────────────────────────────────────────────
