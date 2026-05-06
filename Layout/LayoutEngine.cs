@@ -22,6 +22,7 @@ public class LayoutEngine
     private const double NsGap = 20.0;
     private const double MaxNsWidth = 600.0;
     private const double RoutingMargin = 18.0;
+    private const double ObstaclePadding = 18.0;
 
     public LayoutResult Calculate(ProjectGraph graph, double canvasMaxWidth)
     {
@@ -163,6 +164,10 @@ public class LayoutEngine
         var allSegs = PointsToSegments(pts);
         if (allSegs.Count == 0) return [];
 
+        var obstacleRoute = TryRouteAroundObstacles(srcPt, srcSide, tgtPt, tgtSide, obstacles, laneOffset);
+        if (obstacleRoute != null)
+            return obstacleRoute;
+
         // 最初(srcPt→exitPt)と最後(entryPt→tgtPt)は辺への接続セグメント。
         // AvoidObstacles に渡すと方向が変わり辺との整合が壊れるため対象外にする。
         if (allSegs.Count == 1)
@@ -181,6 +186,105 @@ public class LayoutEngine
         segs.AddRange(middleSegs);
         segs.Add(lastSeg);
         return SimplifyMiddleRoute(NormalizeSegments(segs), obstacles);
+    }
+
+    private static List<RouteSegment>? TryRouteAroundObstacles(
+        Point srcPt,
+        Side srcSide,
+        Point tgtPt,
+        Side tgtSide,
+        List<Rect> obstacles,
+        double laneOffset)
+    {
+        if (srcSide == Side.Right && tgtSide == Side.Left && tgtPt.X > srcPt.X)
+            return TryHorizontalOppositeSideBypass(srcPt, srcSide, tgtPt, tgtSide, obstacles, laneOffset);
+
+        if (srcSide == Side.Left && tgtSide == Side.Right && tgtPt.X < srcPt.X)
+            return TryHorizontalOppositeSideBypass(srcPt, srcSide, tgtPt, tgtSide, obstacles, laneOffset);
+
+        if (srcSide == Side.Bottom && tgtSide == Side.Top && tgtPt.Y > srcPt.Y)
+            return TryVerticalOppositeSideBypass(srcPt, srcSide, tgtPt, tgtSide, obstacles, laneOffset);
+
+        if (srcSide == Side.Top && tgtSide == Side.Bottom && tgtPt.Y < srcPt.Y)
+            return TryVerticalOppositeSideBypass(srcPt, srcSide, tgtPt, tgtSide, obstacles, laneOffset);
+
+        return null;
+    }
+
+    private static List<RouteSegment>? TryHorizontalOppositeSideBypass(
+        Point srcPt,
+        Side srcSide,
+        Point tgtPt,
+        Side tgtSide,
+        List<Rect> obstacles,
+        double laneOffset)
+    {
+        var direct = PointsToSegments([srcPt, tgtPt]);
+        if (direct.Count == 1 && !RouteIntersectsObstacles(direct, obstacles))
+            return direct;
+
+        var exitPt = Extend(srcPt, srcSide, RoutingMargin);
+        var entryPt = Extend(tgtPt, tgtSide, RoutingMargin);
+        var minX = Math.Min(srcPt.X, tgtPt.X);
+        var maxX = Math.Max(srcPt.X, tgtPt.X);
+        var minY = Math.Min(srcPt.Y, tgtPt.Y);
+        var maxY = Math.Max(srcPt.Y, tgtPt.Y);
+        var blockers = obstacles.Where(rect =>
+            rect.Right > minX && rect.Left < maxX &&
+            rect.Bottom > minY - RoutingMargin && rect.Top < maxY + RoutingMargin).ToList();
+        if (blockers.Count == 0) return direct;
+
+        var topLane = blockers.Min(rect => rect.Top) - ObstaclePadding - Math.Abs(laneOffset);
+        var bottomLane = blockers.Max(rect => rect.Bottom) + ObstaclePadding + Math.Abs(laneOffset);
+        var topRoute = PointsToSegments([srcPt, exitPt, new Point(exitPt.X, topLane), new Point(entryPt.X, topLane), entryPt, tgtPt]);
+        var bottomRoute = PointsToSegments([srcPt, exitPt, new Point(exitPt.X, bottomLane), new Point(entryPt.X, bottomLane), entryPt, tgtPt]);
+
+        var topBlocked = RouteIntersectsObstacles(topRoute, obstacles);
+        var bottomBlocked = RouteIntersectsObstacles(bottomRoute, obstacles);
+
+        if (!topBlocked && !bottomBlocked)
+            return RouteLength(topRoute) <= RouteLength(bottomRoute) ? topRoute : bottomRoute;
+        if (!topBlocked) return topRoute;
+        if (!bottomBlocked) return bottomRoute;
+        return null;
+    }
+
+    private static List<RouteSegment>? TryVerticalOppositeSideBypass(
+        Point srcPt,
+        Side srcSide,
+        Point tgtPt,
+        Side tgtSide,
+        List<Rect> obstacles,
+        double laneOffset)
+    {
+        var direct = PointsToSegments([srcPt, tgtPt]);
+        if (direct.Count == 1 && !RouteIntersectsObstacles(direct, obstacles))
+            return direct;
+
+        var exitPt = Extend(srcPt, srcSide, RoutingMargin);
+        var entryPt = Extend(tgtPt, tgtSide, RoutingMargin);
+        var minX = Math.Min(srcPt.X, tgtPt.X);
+        var maxX = Math.Max(srcPt.X, tgtPt.X);
+        var minY = Math.Min(srcPt.Y, tgtPt.Y);
+        var maxY = Math.Max(srcPt.Y, tgtPt.Y);
+        var blockers = obstacles.Where(rect =>
+            rect.Right > minX - RoutingMargin && rect.Left < maxX + RoutingMargin &&
+            rect.Bottom > minY && rect.Top < maxY).ToList();
+        if (blockers.Count == 0) return direct;
+
+        var leftLane = blockers.Min(rect => rect.Left) - ObstaclePadding - Math.Abs(laneOffset);
+        var rightLane = blockers.Max(rect => rect.Right) + ObstaclePadding + Math.Abs(laneOffset);
+        var leftRoute = PointsToSegments([srcPt, exitPt, new Point(leftLane, exitPt.Y), new Point(leftLane, entryPt.Y), entryPt, tgtPt]);
+        var rightRoute = PointsToSegments([srcPt, exitPt, new Point(rightLane, exitPt.Y), new Point(rightLane, entryPt.Y), entryPt, tgtPt]);
+
+        var leftBlocked = RouteIntersectsObstacles(leftRoute, obstacles);
+        var rightBlocked = RouteIntersectsObstacles(rightRoute, obstacles);
+
+        if (!leftBlocked && !rightBlocked)
+            return RouteLength(leftRoute) <= RouteLength(rightRoute) ? leftRoute : rightRoute;
+        if (!leftBlocked) return leftRoute;
+        if (!rightBlocked) return rightRoute;
+        return null;
     }
 
     private static (Side srcSide, Side tgtSide)[] SelectSidePairs(
@@ -630,6 +734,8 @@ public class LayoutEngine
 
     private static bool RouteIntersectsObstacles(List<RouteSegment> route, List<Rect> obstacles) =>
         route.Any(seg => obstacles.Any(rect => SegmentIntersectsRect(seg, rect)));
+
+    private static double RouteLength(List<RouteSegment> route) => route.Sum(seg => seg.Length);
 
     private static double SidePairPenalty(
         (Side srcSide, Side tgtSide) pair,
