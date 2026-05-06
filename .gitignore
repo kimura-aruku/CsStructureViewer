@@ -409,6 +409,9 @@ FodyWeavers.xsd
 *.sln.iml
 .idea/
 
+# C# Dev Kit language service cache
+*.lscache
+
 ##
 ## Visual studio for Mac
 ##
