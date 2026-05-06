@@ -97,9 +97,7 @@ public class LayoutEngine
     {
         if (edges.Count == 0) return;
 
-        var sideInfo = edges
-            .Select(e => DetermineNaturalSides(classRects[e.Source], classRects[e.Target]))
-            .ToArray();
+        var sideInfo = SelectSidePairs(edges, classRects, result);
 
         // Group by (node, side) for spread calculation
         var groups = new Dictionary<(ClassNode node, Side side), List<(int idx, bool isSrc)>>();
@@ -182,6 +180,45 @@ public class LayoutEngine
         return NormalizeSegments(segs);
     }
 
+    private static (Side srcSide, Side tgtSide)[] SelectSidePairs(
+        List<DependencyEdge> edges,
+        Dictionary<ClassNode, Rect> classRects,
+        LayoutResult result)
+    {
+        var selected = new (Side srcSide, Side tgtSide)[edges.Count];
+
+        for (int i = 0; i < edges.Count; i++)
+        {
+            var edge = edges[i];
+            var srcRect = classRects[edge.Source];
+            var tgtRect = classRects[edge.Target];
+            var natural = DetermineNaturalSides(srcRect, tgtRect);
+            var obstacles = BuildObstacles(edge.Source, edge.Target, classRects, result);
+
+            var bestScore = double.PositiveInfinity;
+            var bestPair = natural;
+
+            foreach (var pair in EnumerateSidePairCandidates(natural))
+            {
+                var srcPt = AttachPoint(srcRect, pair.srcSide, 0.5);
+                var tgtPt = AttachPoint(tgtRect, pair.tgtSide, 0.5);
+                var route = BuildRouteSegments(
+                    srcPt, pair.srcSide, tgtPt, pair.tgtSide, srcRect, tgtRect, obstacles, laneOffset: 0);
+                var score = ScoreRoute(route, obstacles, pair, natural);
+
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    bestPair = pair;
+                }
+            }
+
+            selected[i] = bestPair;
+        }
+
+        return selected;
+    }
+
     private static void AddToGroup<TKey, TVal>(
         Dictionary<TKey, List<TVal>> dict, TKey key, TVal val) where TKey : notnull
     {
@@ -200,6 +237,28 @@ public class LayoutEngine
         if (Math.Abs(dx) >= Math.Abs(dy))
             return dx >= 0 ? (Side.Right, Side.Left) : (Side.Left, Side.Right);
         return dy >= 0 ? (Side.Bottom, Side.Top) : (Side.Top, Side.Bottom);
+    }
+
+    private static IEnumerable<(Side srcSide, Side tgtSide)> EnumerateSidePairCandidates(
+        (Side srcSide, Side tgtSide) natural)
+    {
+        yield return natural;
+
+        var candidates = new (Side srcSide, Side tgtSide)[]
+        {
+            (Side.Right, Side.Left),
+            (Side.Left, Side.Right),
+            (Side.Bottom, Side.Top),
+            (Side.Top, Side.Bottom),
+            (Side.Right, Side.Right),
+            (Side.Left, Side.Left),
+            (Side.Bottom, Side.Bottom),
+            (Side.Top, Side.Top),
+        };
+
+        foreach (var candidate in candidates)
+            if (candidate != natural)
+                yield return candidate;
     }
 
     private static Point AttachPoint(Rect rect, Side side, double fraction) => side switch
@@ -545,6 +604,29 @@ public class LayoutEngine
             return maxY > rect.Top && minY < rect.Bottom;
         }
     }
+
+    private static double ScoreRoute(
+        List<RouteSegment> route,
+        List<Rect> obstacles,
+        (Side srcSide, Side tgtSide) pair,
+        (Side srcSide, Side tgtSide) natural)
+    {
+        if (route.Count == 0) return double.PositiveInfinity;
+
+        var score = route.Sum(s => s.Length);
+        score += Math.Max(0, route.Count - 1) * 180.0;
+
+        if (pair != natural)
+            score += 40.0;
+
+        if (RouteIntersectsObstacles(route, obstacles))
+            score += 100000.0;
+
+        return score;
+    }
+
+    private static bool RouteIntersectsObstacles(List<RouteSegment> route, List<Rect> obstacles) =>
+        route.Any(seg => obstacles.Any(rect => SegmentIntersectsRect(seg, rect)));
 
     private static bool OverlapsExistingRoute(List<RouteSegment> candidate, List<ArrowRoute> existingRoutes)
     {
