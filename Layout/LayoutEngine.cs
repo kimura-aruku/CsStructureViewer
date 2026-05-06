@@ -132,10 +132,26 @@ public class LayoutEngine
             var tgtPt = AttachPoint(tgtRect, tgtSide, tgtFractions[i]);
 
             var pts = RouteOrthogonal(srcPt, srcSide, tgtPt, tgtSide, srcRect, tgtRect);
-            var segs = PointsToSegments(pts);
+            var allSegs = PointsToSegments(pts);
+            if (allSegs.Count < 2) continue;
+
+            // 最初(srcPt→exitPt)と最後(entryPt→tgtPt)は辺への接続セグメント。
+            // AvoidObstacles に渡すと方向が変わり辺との整合が壊れるため対象外にする。
+            var firstSeg = allSegs[0];
+            var lastSeg  = allSegs[^1];
+            var middleSegs = allSegs.Count > 2
+                ? allSegs.GetRange(1, allSegs.Count - 2)
+                : new List<RouteSegment>();
+
             var obstacles = BuildObstacles(edge.Source, edge.Target, classRects, result);
-            segs = AvoidObstacles(segs, obstacles);
+            middleSegs = AvoidObstacles(middleSegs, obstacles);
+            middleSegs = NormalizeSegments(middleSegs);
+
+            var segs = new List<RouteSegment> { firstSeg };
+            segs.AddRange(middleSegs);
+            segs.Add(lastSeg);
             segs = NormalizeSegments(segs);
+
             if (segs.Count > 0)
                 result.Arrows.Add(new ArrowRoute(segs, edge.Kind));
         }
@@ -194,17 +210,34 @@ public class LayoutEngine
             }
             else
             {
-                double midX = (exitPt.X + entryPt.X) / 2;
-                pts.Add(exitPt);
-                if (Math.Abs(exitPt.Y - entryPt.Y) < 1)
+                // tgt が src より手前（srcSide と逆方向）にある場合は逆方向セグメントが
+                // 発生するためループ型に切り替える
+                bool wouldReverse = (srcSide == Side.Right && entryPt.X < exitPt.X) ||
+                                    (srcSide == Side.Left  && entryPt.X > exitPt.X);
+                if (wouldReverse)
                 {
+                    double extreme = srcSide == Side.Right
+                        ? Math.Max(exitPt.X, entryPt.X) + 30
+                        : Math.Min(exitPt.X, entryPt.X) - 30;
+                    pts.Add(exitPt);
+                    pts.Add(new Point(extreme, exitPt.Y));
+                    pts.Add(new Point(extreme, entryPt.Y));
                     pts.Add(entryPt);
                 }
                 else
                 {
-                    pts.Add(new Point(midX, exitPt.Y));
-                    pts.Add(new Point(midX, entryPt.Y));
-                    pts.Add(entryPt);
+                    double midX = (exitPt.X + entryPt.X) / 2;
+                    pts.Add(exitPt);
+                    if (Math.Abs(exitPt.Y - entryPt.Y) < 1)
+                    {
+                        pts.Add(entryPt);
+                    }
+                    else
+                    {
+                        pts.Add(new Point(midX, exitPt.Y));
+                        pts.Add(new Point(midX, entryPt.Y));
+                        pts.Add(entryPt);
+                    }
                 }
             }
         }
@@ -222,30 +255,51 @@ public class LayoutEngine
             }
             else
             {
-                double midY = (exitPt.Y + entryPt.Y) / 2;
-                pts.Add(exitPt);
-                if (Math.Abs(exitPt.X - entryPt.X) < 1)
+                // tgt が src より手前（srcSide と逆方向）にある場合はループ型に切り替える
+                bool wouldReverse = (srcSide == Side.Bottom && entryPt.Y < exitPt.Y) ||
+                                    (srcSide == Side.Top    && entryPt.Y > exitPt.Y);
+                if (wouldReverse)
                 {
+                    double extreme = srcSide == Side.Bottom
+                        ? Math.Max(exitPt.Y, entryPt.Y) + 30
+                        : Math.Min(exitPt.Y, entryPt.Y) - 30;
+                    pts.Add(exitPt);
+                    pts.Add(new Point(exitPt.X, extreme));
+                    pts.Add(new Point(entryPt.X, extreme));
                     pts.Add(entryPt);
                 }
                 else
                 {
-                    pts.Add(new Point(exitPt.X, midY));
-                    pts.Add(new Point(entryPt.X, midY));
-                    pts.Add(entryPt);
+                    double midY = (exitPt.Y + entryPt.Y) / 2;
+                    pts.Add(exitPt);
+                    if (Math.Abs(exitPt.X - entryPt.X) < 1)
+                    {
+                        pts.Add(entryPt);
+                    }
+                    else
+                    {
+                        pts.Add(new Point(exitPt.X, midY));
+                        pts.Add(new Point(entryPt.X, midY));
+                        pts.Add(entryPt);
+                    }
                 }
             }
         }
         else if (srcH)
         {
+            // src が水平接続（Left/Right）、tgt が垂直接続（Top/Bottom）
+            // exitPt から先に垂直移動してから水平移動で entryPt へ向かう。
+            // 逆（先に水平）だと srcSide と逆方向のセグメントが生まれる場合がある。
             pts.Add(exitPt);
-            pts.Add(new Point(entryPt.X, exitPt.Y));
+            pts.Add(new Point(exitPt.X, entryPt.Y));
             pts.Add(entryPt);
         }
         else
         {
+            // src が垂直接続（Top/Bottom）、tgt が水平接続（Left/Right）
+            // exitPt から先に水平移動してから垂直移動で entryPt へ向かう。
             pts.Add(exitPt);
-            pts.Add(new Point(exitPt.X, entryPt.Y));
+            pts.Add(new Point(entryPt.X, exitPt.Y));
             pts.Add(entryPt);
         }
 
@@ -289,7 +343,9 @@ public class LayoutEngine
         return segs;
     }
 
-    // ── Normalize: merge same-direction, cancel opposite-direction ──
+    // ── Normalize: merge same-direction segments only ──────────────
+    // 逆方向キャンセルは行わない。キャンセルすると先頭・末尾セグメントの方向が
+    // srcSide/tgtSide と一致しなくなり、接続辺と矢印方向がずれる原因になるため。
 
     private static List<RouteSegment> NormalizeSegments(List<RouteSegment> segs)
     {
@@ -308,29 +364,6 @@ public class LayoutEngine
                 {
                     result[i] = new RouteSegment(a.X, a.Y, a.Direction, a.Length + b.Length);
                     result.RemoveAt(i + 1);
-                    changed = true;
-                    break;
-                }
-
-                if (ArrowRoute.AreOpposite(a.Direction, b.Direction))
-                {
-                    double diff = a.Length - b.Length;
-                    if (Math.Abs(diff) < 0.1)
-                    {
-                        result.RemoveAt(i + 1);
-                        result.RemoveAt(i);
-                    }
-                    else if (diff > 0)
-                    {
-                        result[i] = new RouteSegment(a.X, a.Y, a.Direction, diff);
-                        result.RemoveAt(i + 1);
-                    }
-                    else
-                    {
-                        var ep = a.End;
-                        result[i + 1] = new RouteSegment(ep.X, ep.Y, b.Direction, -diff);
-                        result.RemoveAt(i);
-                    }
                     changed = true;
                     break;
                 }

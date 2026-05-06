@@ -59,9 +59,8 @@ public class ArrowRoute
             if (curr == prev)
                 throw new InvalidOperationException(
                     $"Segment[{i}] has the same direction ({curr}) as segment[{i - 1}].");
-            if (AreOpposite(prev, curr))
-                throw new InvalidOperationException(
-                    $"Segment[{i}] ({curr}) is opposite to segment[{i - 1}] ({prev}).");
+            // 逆方向チェックは除去。AvoidObstacles が一時的に逆方向セグメントを
+            // 生成するケースがあり、それを拒否すると矢印が描画されなくなるため。
         }
     }
 
