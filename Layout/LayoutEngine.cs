@@ -5,6 +5,15 @@ namespace CsStructureViewer.Layout;
 
 internal enum Side { Left, Right, Top, Bottom }
 
+internal record RouteRequest(
+    string SourceKey,
+    string TargetKey,
+    Rect SourceRect,
+    Rect TargetRect,
+    DependencyKind Kind,
+    NamespaceNode? SourceNamespace,
+    NamespaceNode? TargetNamespace);
+
 public class LayoutEngine
 {
     private static readonly double[] LaneOffsets = [0.0, 8.0, -8.0, 16.0, -16.0, 24.0, -24.0];
@@ -29,12 +38,13 @@ public class LayoutEngine
     {
         var result = new LayoutResult();
         var sizes = new Dictionary<ClassNode, Size>();
+        var classNamespaces = BuildClassNamespaceMap(graph);
+        var visibleFolderNamespaces = GetVisibleFolderNamespaces(graph, classNamespaces);
 
         // Identify folder namespaces
-        foreach (var ns in graph.Namespaces)
+        foreach (var ns in visibleFolderNamespaces)
         {
-            if (ns.IsInternal)
-                result.FolderNamespaces.Add(ns);
+            result.FolderNamespaces.Add(ns);
         }
 
         // Step 1: Calculate sizes for all classes
@@ -43,7 +53,7 @@ public class LayoutEngine
 
         // Step 2 & 3: Place classes within namespaces, compute namespace rects
         double x = 0, y = 0, rowH = 0;
-        foreach (var ns in graph.Namespaces)
+        foreach (var ns in graph.Namespaces.Where(ns => !ns.IsInternal || visibleFolderNamespaces.Contains(ns)))
         {
             var nsSize = CalcNamespaceLayout(ns, sizes, result.ClassRects, originX: 0, originY: 0);
 
@@ -73,45 +83,120 @@ public class LayoutEngine
         result.GlobalClasses.AddRange(graph.GlobalClasses);
 
         // Step 6: Arrow routes
-        var eligibleEdges = graph.Edges
-            .Where(e => !IsInFolderNamespace(e.Source, result.FolderNamespaces) &&
-                        !IsInFolderNamespace(e.Target, result.FolderNamespaces) &&
-                        result.ClassRects.ContainsKey(e.Source) &&
-                        result.ClassRects.ContainsKey(e.Target))
-            .ToList();
+        var routeRequests = BuildRouteRequests(graph.Edges, classNamespaces, result);
 
-        RouteArrows(eligibleEdges, result.ClassRects, result);
+        RouteArrows(routeRequests, result);
 
         return result;
     }
 
     // ── Pattern matching ────────────────────────────────────────────
 
-    private static bool IsInFolderNamespace(ClassNode cls, HashSet<NamespaceNode> folderNamespaces) =>
-        folderNamespaces.Any(fn => fn.Classes.Contains(cls));
+    private static Dictionary<ClassNode, NamespaceNode> BuildClassNamespaceMap(ProjectGraph graph)
+    {
+        var map = new Dictionary<ClassNode, NamespaceNode>();
+        foreach (var ns in graph.Namespaces)
+            foreach (var cls in ns.Classes)
+                map[cls] = ns;
+        return map;
+    }
+
+    private static HashSet<NamespaceNode> GetVisibleFolderNamespaces(
+        ProjectGraph graph,
+        Dictionary<ClassNode, NamespaceNode> classNamespaces)
+    {
+        var visible = new HashSet<NamespaceNode>();
+        foreach (var edge in graph.Edges)
+        {
+            var sourceNs = classNamespaces.GetValueOrDefault(edge.Source);
+            var targetNs = classNamespaces.GetValueOrDefault(edge.Target);
+            var sourceInternal = sourceNs?.IsInternal == true;
+            var targetInternal = targetNs?.IsInternal == true;
+
+            if (sourceInternal == targetInternal) continue;
+            if (sourceInternal && sourceNs != null) visible.Add(sourceNs);
+            if (targetInternal && targetNs != null) visible.Add(targetNs);
+        }
+        return visible;
+    }
+
+    private static List<RouteRequest> BuildRouteRequests(
+        List<DependencyEdge> edges,
+        Dictionary<ClassNode, NamespaceNode> classNamespaces,
+        LayoutResult result)
+    {
+        var requests = new List<RouteRequest>();
+        var seen = new HashSet<(string sourceKey, string targetKey, DependencyKind kind)>();
+
+        foreach (var edge in edges)
+        {
+            var sourceNs = classNamespaces.GetValueOrDefault(edge.Source);
+            var targetNs = classNamespaces.GetValueOrDefault(edge.Target);
+            var sourceInternal = sourceNs?.IsInternal == true;
+            var targetInternal = targetNs?.IsInternal == true;
+
+            if (sourceInternal && targetInternal)
+                continue;
+
+            var sourceKey = sourceInternal ? NamespaceKey(sourceNs!) : ClassKey(edge.Source);
+            var targetKey = targetInternal ? NamespaceKey(targetNs!) : ClassKey(edge.Target);
+            if (!seen.Add((sourceKey, targetKey, edge.Kind)))
+                continue;
+
+            if (!TryGetEndpointRect(edge.Source, sourceInternal ? sourceNs : null, result, out var sourceRect) ||
+                !TryGetEndpointRect(edge.Target, targetInternal ? targetNs : null, result, out var targetRect))
+                continue;
+
+            requests.Add(new RouteRequest(
+                sourceKey,
+                targetKey,
+                sourceRect,
+                targetRect,
+                edge.Kind,
+                sourceNs,
+                targetNs));
+        }
+
+        return requests;
+    }
+
+    private static bool TryGetEndpointRect(
+        ClassNode cls,
+        NamespaceNode? internalNamespace,
+        LayoutResult result,
+        out Rect rect)
+    {
+        if (internalNamespace != null)
+            return result.NamespaceRects.TryGetValue(internalNamespace, out rect);
+
+        return result.ClassRects.TryGetValue(cls, out rect);
+    }
+
+    private static string ClassKey(ClassNode cls) => $"class:{cls.FullyQualifiedName}";
+
+    private static string NamespaceKey(NamespaceNode ns) => $"namespace:{ns.Name}";
 
     // ── Arrow routing ────────────────────────────────────────────────
 
     private static void RouteArrows(
-        List<DependencyEdge> edges,
-        Dictionary<ClassNode, Rect> classRects,
+        List<RouteRequest> requests,
         LayoutResult result)
     {
-        if (edges.Count == 0) return;
+        if (requests.Count == 0) return;
 
-        var sideInfo = SelectSidePairs(edges, classRects, result);
+        var sideInfo = SelectSidePairs(requests, result);
 
         // Group by (node, side) for spread calculation
-        var groups = new Dictionary<(ClassNode node, Side side), List<(int idx, bool isSrc)>>();
-        for (int i = 0; i < edges.Count; i++)
+        var groups = new Dictionary<(string key, Side side), List<(int idx, bool isSrc)>>();
+        for (int i = 0; i < requests.Count; i++)
         {
             var (srcSide, tgtSide) = sideInfo[i];
-            AddToGroup(groups, (edges[i].Source, srcSide), (i, true));
-            AddToGroup(groups, (edges[i].Target, tgtSide), (i, false));
+            AddToGroup(groups, (requests[i].SourceKey, srcSide), (i, true));
+            AddToGroup(groups, (requests[i].TargetKey, tgtSide), (i, false));
         }
 
-        var srcFractions = new double[edges.Count];
-        var tgtFractions = new double[edges.Count];
+        var srcFractions = new double[requests.Count];
+        var tgtFractions = new double[requests.Count];
         foreach (var list in groups.Values)
         {
             for (int j = 0; j < list.Count; j++)
@@ -123,17 +208,17 @@ public class LayoutEngine
             }
         }
 
-        for (int i = 0; i < edges.Count; i++)
+        for (int i = 0; i < requests.Count; i++)
         {
-            var edge = edges[i];
-            var srcRect = classRects[edge.Source];
-            var tgtRect = classRects[edge.Target];
+            var request = requests[i];
+            var srcRect = request.SourceRect;
+            var tgtRect = request.TargetRect;
             var (srcSide, tgtSide) = sideInfo[i];
 
             var srcPt = AttachPoint(srcRect, srcSide, srcFractions[i]);
             var tgtPt = AttachPoint(tgtRect, tgtSide, tgtFractions[i]);
 
-            var obstacles = BuildObstacles(edge.Source, edge.Target, classRects, result);
+            var obstacles = BuildObstacles(request, result);
             List<RouteSegment>? segs = null;
             foreach (var laneOffset in LaneOffsets)
             {
@@ -147,7 +232,7 @@ public class LayoutEngine
             }
 
             if (segs is { Count: > 0 })
-                result.Arrows.Add(new ArrowRoute(segs, edge.Kind));
+                result.Arrows.Add(new ArrowRoute(segs, request.Kind));
         }
     }
 
@@ -186,19 +271,18 @@ public class LayoutEngine
     }
 
     private static (Side srcSide, Side tgtSide)[] SelectSidePairs(
-        List<DependencyEdge> edges,
-        Dictionary<ClassNode, Rect> classRects,
+        List<RouteRequest> requests,
         LayoutResult result)
     {
-        var selected = new (Side srcSide, Side tgtSide)[edges.Count];
+        var selected = new (Side srcSide, Side tgtSide)[requests.Count];
 
-        for (int i = 0; i < edges.Count; i++)
+        for (int i = 0; i < requests.Count; i++)
         {
-            var edge = edges[i];
-            var srcRect = classRects[edge.Source];
-            var tgtRect = classRects[edge.Target];
+            var request = requests[i];
+            var srcRect = request.SourceRect;
+            var tgtRect = request.TargetRect;
             var natural = DetermineNaturalSides(srcRect, tgtRect);
-            var obstacles = BuildObstacles(edge.Source, edge.Target, classRects, result);
+            var obstacles = BuildObstacles(request, result);
 
             var bestScore = double.PositiveInfinity;
             var bestPair = natural;
@@ -511,22 +595,20 @@ public class LayoutEngine
     // ── Obstacle avoidance ──────────────────────────────────────────
 
     private static List<Rect> BuildObstacles(
-        ClassNode src, ClassNode tgt,
-        Dictionary<ClassNode, Rect> classRects,
+        RouteRequest request,
         LayoutResult result)
     {
-        var srcNs = result.NamespaceOrder.FirstOrDefault(ns => ns.Classes.Contains(src));
-        var tgtNs = result.NamespaceOrder.FirstOrDefault(ns => ns.Classes.Contains(tgt));
-
         var obstacles = new List<Rect>();
-        foreach (var kv in classRects)
+        foreach (var kv in result.ClassRects)
         {
-            if (kv.Key == src || kv.Key == tgt) continue;
+            if (RectClose(kv.Value, request.SourceRect) || RectClose(kv.Value, request.TargetRect))
+                continue;
             obstacles.Add(kv.Value);
         }
         foreach (var kv in result.NamespaceRects)
         {
-            if (kv.Key == srcNs || kv.Key == tgtNs) continue;
+            if (kv.Key == request.SourceNamespace || kv.Key == request.TargetNamespace)
+                continue;
             obstacles.Add(kv.Value);
         }
         return obstacles;
@@ -925,6 +1007,12 @@ public class LayoutEngine
 
     private static bool PointsClose(Point a, Point b) =>
         Math.Abs(a.X - b.X) < 0.1 && Math.Abs(a.Y - b.Y) < 0.1;
+
+    private static bool RectClose(Rect a, Rect b) =>
+        Math.Abs(a.X - b.X) < 0.1 &&
+        Math.Abs(a.Y - b.Y) < 0.1 &&
+        Math.Abs(a.Width - b.Width) < 0.1 &&
+        Math.Abs(a.Height - b.Height) < 0.1;
 
     private static bool PointsCloseX(Point a, Point b) => Math.Abs(a.X - b.X) < 0.1;
 
