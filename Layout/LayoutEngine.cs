@@ -161,10 +161,13 @@ public class LayoutEngine
     {
         var pts = RouteOrthogonal(srcPt, srcSide, tgtPt, tgtSide, srcRect, tgtRect, laneOffset);
         var allSegs = PointsToSegments(pts);
-        if (allSegs.Count < 2) return [];
+        if (allSegs.Count == 0) return [];
 
         // 最初(srcPt→exitPt)と最後(entryPt→tgtPt)は辺への接続セグメント。
         // AvoidObstacles に渡すと方向が変わり辺との整合が壊れるため対象外にする。
+        if (allSegs.Count == 1)
+            return NormalizeSegments(allSegs);
+
         var firstSeg = allSegs[0];
         var lastSeg  = allSegs[^1];
         var middleSegs = allSegs.Count > 2
@@ -177,7 +180,7 @@ public class LayoutEngine
         var segs = new List<RouteSegment> { firstSeg };
         segs.AddRange(middleSegs);
         segs.Add(lastSeg);
-        return NormalizeSegments(segs);
+        return SimplifyMiddleRoute(NormalizeSegments(segs), obstacles);
     }
 
     private static (Side srcSide, Side tgtSide)[] SelectSidePairs(
@@ -302,8 +305,8 @@ public class LayoutEngine
             {
                 // tgt が src より手前（srcSide と逆方向）にある場合は逆方向セグメントが
                 // 発生するためループ型に切り替える
-                bool wouldReverse = (srcSide == Side.Right && entryPt.X < exitPt.X) ||
-                                    (srcSide == Side.Left  && entryPt.X > exitPt.X);
+                bool wouldReverse = (srcSide == Side.Right && tgtPt.X < srcPt.X) ||
+                                    (srcSide == Side.Left  && tgtPt.X > srcPt.X);
                 if (wouldReverse)
                 {
                     double extreme = srcSide == Side.Right
@@ -316,17 +319,16 @@ public class LayoutEngine
                 }
                 else
                 {
-                    double midX = (exitPt.X + entryPt.X) / 2 + laneOffset;
-                    pts.Add(exitPt);
+                    double midX = (srcPt.X + tgtPt.X) / 2 + laneOffset;
                     if (Math.Abs(exitPt.Y - entryPt.Y) < 1)
                     {
-                        pts.Add(entryPt);
+                        pts.Add(tgtPt);
                     }
                     else
                     {
-                        pts.Add(new Point(midX, exitPt.Y));
-                        pts.Add(new Point(midX, entryPt.Y));
-                        pts.Add(entryPt);
+                        pts.Add(new Point(midX, srcPt.Y));
+                        pts.Add(new Point(midX, tgtPt.Y));
+                        pts.Add(tgtPt);
                     }
                 }
             }
@@ -346,8 +348,8 @@ public class LayoutEngine
             else
             {
                 // tgt が src より手前（srcSide と逆方向）にある場合はループ型に切り替える
-                bool wouldReverse = (srcSide == Side.Bottom && entryPt.Y < exitPt.Y) ||
-                                    (srcSide == Side.Top    && entryPt.Y > exitPt.Y);
+                bool wouldReverse = (srcSide == Side.Bottom && tgtPt.Y < srcPt.Y) ||
+                                    (srcSide == Side.Top    && tgtPt.Y > srcPt.Y);
                 if (wouldReverse)
                 {
                     double extreme = srcSide == Side.Bottom
@@ -360,17 +362,16 @@ public class LayoutEngine
                 }
                 else
                 {
-                    double midY = (exitPt.Y + entryPt.Y) / 2 + laneOffset;
-                    pts.Add(exitPt);
+                    double midY = (srcPt.Y + tgtPt.Y) / 2 + laneOffset;
                     if (Math.Abs(exitPt.X - entryPt.X) < 1)
                     {
-                        pts.Add(entryPt);
+                        pts.Add(tgtPt);
                     }
                     else
                     {
-                        pts.Add(new Point(exitPt.X, midY));
-                        pts.Add(new Point(entryPt.X, midY));
-                        pts.Add(entryPt);
+                        pts.Add(new Point(srcPt.X, midY));
+                        pts.Add(new Point(tgtPt.X, midY));
+                        pts.Add(tgtPt);
                     }
                 }
             }
@@ -411,7 +412,8 @@ public class LayoutEngine
             pts.Add(entryPt);
         }
 
-        pts.Add(tgtPt);
+        if (!PointsClose(pts[^1], tgtPt))
+            pts.Add(tgtPt);
         return pts;
     }
 
@@ -615,6 +617,7 @@ public class LayoutEngine
 
         var score = route.Sum(s => s.Length);
         score += Math.Max(0, route.Count - 1) * 180.0;
+        score += SidePairPenalty(pair, natural);
 
         if (pair != natural)
             score += 40.0;
@@ -627,6 +630,132 @@ public class LayoutEngine
 
     private static bool RouteIntersectsObstacles(List<RouteSegment> route, List<Rect> obstacles) =>
         route.Any(seg => obstacles.Any(rect => SegmentIntersectsRect(seg, rect)));
+
+    private static double SidePairPenalty(
+        (Side srcSide, Side tgtSide) pair,
+        (Side srcSide, Side tgtSide) natural)
+    {
+        var penalty = SideDistance(pair.srcSide, natural.srcSide) * 220.0;
+        penalty += SideDistance(pair.tgtSide, natural.tgtSide) * 220.0;
+
+        if (pair.srcSide == pair.tgtSide)
+            penalty += 260.0;
+
+        return penalty;
+    }
+
+    private static int SideDistance(Side a, Side b)
+    {
+        if (a == b) return 0;
+        return IsOppositeSide(a, b) ? 2 : 1;
+    }
+
+    private static bool IsOppositeSide(Side a, Side b) =>
+        (a == Side.Left && b == Side.Right) ||
+        (a == Side.Right && b == Side.Left) ||
+        (a == Side.Top && b == Side.Bottom) ||
+        (a == Side.Bottom && b == Side.Top);
+
+    private static List<RouteSegment> SimplifyMiddleRoute(List<RouteSegment> route, List<Rect> obstacles)
+    {
+        if (route.Count <= 2) return route;
+
+        var firstSeg = route[0];
+        var lastSeg = route[^1];
+        var middle = route.GetRange(1, route.Count - 2);
+        middle = SimplifyRoute(middle, obstacles);
+
+        var result = new List<RouteSegment> { firstSeg };
+        result.AddRange(middle);
+        result.Add(lastSeg);
+        return NormalizeSegments(RemoveRouteCycles(result));
+    }
+
+    private static List<RouteSegment> SimplifyRoute(List<RouteSegment> route, List<Rect> obstacles)
+    {
+        var current = RemoveRouteCycles(route);
+        bool changed;
+
+        do
+        {
+            changed = false;
+            current = RemoveRouteCycles(current);
+            for (var i = 0; i < current.Count - 2; i++)
+            {
+                var replacement = TryShortcut(current[i].Start, current[i + 2].End, obstacles);
+                if (replacement == null) continue;
+
+                var next = new List<RouteSegment>();
+                next.AddRange(current.Take(i));
+                next.AddRange(replacement);
+                next.AddRange(current.Skip(i + 3));
+                current = NormalizeSegments(next);
+                changed = true;
+                break;
+            }
+        } while (changed);
+
+        return current;
+    }
+
+    private static List<RouteSegment> RemoveRouteCycles(List<RouteSegment> route)
+    {
+        var current = route;
+        bool changed;
+
+        do
+        {
+            changed = false;
+            var points = SegmentsToPoints(current);
+
+            for (var i = 0; i < points.Count - 1; i++)
+            {
+                for (var j = points.Count - 1; j > i + 1; j--)
+                {
+                    if (!PointsClose(points[i], points[j])) continue;
+
+                    var nextPoints = new List<Point>();
+                    nextPoints.AddRange(points.Take(i + 1));
+                    nextPoints.AddRange(points.Skip(j + 1));
+                    current = PointsToSegments(nextPoints);
+                    changed = true;
+                    break;
+                }
+
+                if (changed) break;
+            }
+        } while (changed);
+
+        return current;
+    }
+
+    private static List<Point> SegmentsToPoints(List<RouteSegment> route)
+    {
+        if (route.Count == 0) return [];
+
+        var points = new List<Point> { route[0].Start };
+        points.AddRange(route.Select(seg => seg.End));
+        return points;
+    }
+
+    private static List<RouteSegment>? TryShortcut(Point start, Point end, List<Rect> obstacles)
+    {
+        var direct = PointsCloseX(start, end) || PointsCloseY(start, end)
+            ? PointsToSegments([start, end])
+            : [];
+        if (direct.Count == 1 && !RouteIntersectsObstacles(direct, obstacles))
+            return direct;
+
+        var horizontalFirst = PointsToSegments([start, new Point(end.X, start.Y), end]);
+        if (horizontalFirst.Count > 0 && !RouteIntersectsObstacles(horizontalFirst, obstacles))
+            return horizontalFirst;
+
+        var verticalFirst = PointsToSegments([start, new Point(start.X, end.Y), end]);
+        if (verticalFirst.Count > 0 && !RouteIntersectsObstacles(verticalFirst, obstacles))
+            return verticalFirst;
+
+        return null;
+    }
 
     private static bool OverlapsExistingRoute(List<RouteSegment> candidate, List<ArrowRoute> existingRoutes)
     {
@@ -725,6 +854,10 @@ public class LayoutEngine
 
     private static bool PointsClose(Point a, Point b) =>
         Math.Abs(a.X - b.X) < 0.1 && Math.Abs(a.Y - b.Y) < 0.1;
+
+    private static bool PointsCloseX(Point a, Point b) => Math.Abs(a.X - b.X) < 0.1;
+
+    private static bool PointsCloseY(Point a, Point b) => Math.Abs(a.Y - b.Y) < 0.1;
 
     private static Point Center(Rect r) => new(r.X + r.Width / 2, r.Y + r.Height / 2);
 

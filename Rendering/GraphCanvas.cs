@@ -304,7 +304,7 @@ public class GraphCanvas : FrameworkElement
             StrokeThickness = 1.5,
             Fill = isTriangle ? Brushes.White : Brushes.Transparent
         };
-        Panel.SetZIndex(head, 5);
+        Panel.SetZIndex(head, 15);
         _inner.Children.Add(head);
     }
 
