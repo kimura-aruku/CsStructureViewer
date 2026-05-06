@@ -22,7 +22,6 @@ public class LayoutEngine
     private const double NsGap = 20.0;
     private const double MaxNsWidth = 600.0;
     private const double RoutingMargin = 18.0;
-    private const double ObstaclePadding = 18.0;
 
     public LayoutResult Calculate(ProjectGraph graph, double canvasMaxWidth)
     {
@@ -164,10 +163,6 @@ public class LayoutEngine
         var allSegs = PointsToSegments(pts);
         if (allSegs.Count == 0) return [];
 
-        var obstacleRoute = TryRouteAroundObstacles(srcPt, srcSide, tgtPt, tgtSide, obstacles, laneOffset);
-        if (obstacleRoute != null)
-            return obstacleRoute;
-
         // 最初(srcPt→exitPt)と最後(entryPt→tgtPt)は辺への接続セグメント。
         // AvoidObstacles に渡すと方向が変わり辺との整合が壊れるため対象外にする。
         if (allSegs.Count == 1)
@@ -186,105 +181,6 @@ public class LayoutEngine
         segs.AddRange(middleSegs);
         segs.Add(lastSeg);
         return SimplifyMiddleRoute(NormalizeSegments(segs), obstacles);
-    }
-
-    private static List<RouteSegment>? TryRouteAroundObstacles(
-        Point srcPt,
-        Side srcSide,
-        Point tgtPt,
-        Side tgtSide,
-        List<Rect> obstacles,
-        double laneOffset)
-    {
-        if (srcSide == Side.Right && tgtSide == Side.Left && tgtPt.X > srcPt.X)
-            return TryHorizontalOppositeSideBypass(srcPt, srcSide, tgtPt, tgtSide, obstacles, laneOffset);
-
-        if (srcSide == Side.Left && tgtSide == Side.Right && tgtPt.X < srcPt.X)
-            return TryHorizontalOppositeSideBypass(srcPt, srcSide, tgtPt, tgtSide, obstacles, laneOffset);
-
-        if (srcSide == Side.Bottom && tgtSide == Side.Top && tgtPt.Y > srcPt.Y)
-            return TryVerticalOppositeSideBypass(srcPt, srcSide, tgtPt, tgtSide, obstacles, laneOffset);
-
-        if (srcSide == Side.Top && tgtSide == Side.Bottom && tgtPt.Y < srcPt.Y)
-            return TryVerticalOppositeSideBypass(srcPt, srcSide, tgtPt, tgtSide, obstacles, laneOffset);
-
-        return null;
-    }
-
-    private static List<RouteSegment>? TryHorizontalOppositeSideBypass(
-        Point srcPt,
-        Side srcSide,
-        Point tgtPt,
-        Side tgtSide,
-        List<Rect> obstacles,
-        double laneOffset)
-    {
-        var direct = PointsToSegments([srcPt, tgtPt]);
-        if (direct.Count == 1 && !RouteIntersectsObstacles(direct, obstacles))
-            return direct;
-
-        var exitPt = Extend(srcPt, srcSide, RoutingMargin);
-        var entryPt = Extend(tgtPt, tgtSide, RoutingMargin);
-        var minX = Math.Min(srcPt.X, tgtPt.X);
-        var maxX = Math.Max(srcPt.X, tgtPt.X);
-        var minY = Math.Min(srcPt.Y, tgtPt.Y);
-        var maxY = Math.Max(srcPt.Y, tgtPt.Y);
-        var blockers = obstacles.Where(rect =>
-            rect.Right > minX && rect.Left < maxX &&
-            rect.Bottom > minY - RoutingMargin && rect.Top < maxY + RoutingMargin).ToList();
-        if (blockers.Count == 0) return direct;
-
-        var topLane = blockers.Min(rect => rect.Top) - ObstaclePadding - Math.Abs(laneOffset);
-        var bottomLane = blockers.Max(rect => rect.Bottom) + ObstaclePadding + Math.Abs(laneOffset);
-        var topRoute = PointsToSegments([srcPt, exitPt, new Point(exitPt.X, topLane), new Point(entryPt.X, topLane), entryPt, tgtPt]);
-        var bottomRoute = PointsToSegments([srcPt, exitPt, new Point(exitPt.X, bottomLane), new Point(entryPt.X, bottomLane), entryPt, tgtPt]);
-
-        var topBlocked = RouteIntersectsObstacles(topRoute, obstacles);
-        var bottomBlocked = RouteIntersectsObstacles(bottomRoute, obstacles);
-
-        if (!topBlocked && !bottomBlocked)
-            return RouteLength(topRoute) <= RouteLength(bottomRoute) ? topRoute : bottomRoute;
-        if (!topBlocked) return topRoute;
-        if (!bottomBlocked) return bottomRoute;
-        return null;
-    }
-
-    private static List<RouteSegment>? TryVerticalOppositeSideBypass(
-        Point srcPt,
-        Side srcSide,
-        Point tgtPt,
-        Side tgtSide,
-        List<Rect> obstacles,
-        double laneOffset)
-    {
-        var direct = PointsToSegments([srcPt, tgtPt]);
-        if (direct.Count == 1 && !RouteIntersectsObstacles(direct, obstacles))
-            return direct;
-
-        var exitPt = Extend(srcPt, srcSide, RoutingMargin);
-        var entryPt = Extend(tgtPt, tgtSide, RoutingMargin);
-        var minX = Math.Min(srcPt.X, tgtPt.X);
-        var maxX = Math.Max(srcPt.X, tgtPt.X);
-        var minY = Math.Min(srcPt.Y, tgtPt.Y);
-        var maxY = Math.Max(srcPt.Y, tgtPt.Y);
-        var blockers = obstacles.Where(rect =>
-            rect.Right > minX - RoutingMargin && rect.Left < maxX + RoutingMargin &&
-            rect.Bottom > minY && rect.Top < maxY).ToList();
-        if (blockers.Count == 0) return direct;
-
-        var leftLane = blockers.Min(rect => rect.Left) - ObstaclePadding - Math.Abs(laneOffset);
-        var rightLane = blockers.Max(rect => rect.Right) + ObstaclePadding + Math.Abs(laneOffset);
-        var leftRoute = PointsToSegments([srcPt, exitPt, new Point(leftLane, exitPt.Y), new Point(leftLane, entryPt.Y), entryPt, tgtPt]);
-        var rightRoute = PointsToSegments([srcPt, exitPt, new Point(rightLane, exitPt.Y), new Point(rightLane, entryPt.Y), entryPt, tgtPt]);
-
-        var leftBlocked = RouteIntersectsObstacles(leftRoute, obstacles);
-        var rightBlocked = RouteIntersectsObstacles(rightRoute, obstacles);
-
-        if (!leftBlocked && !rightBlocked)
-            return RouteLength(leftRoute) <= RouteLength(rightRoute) ? leftRoute : rightRoute;
-        if (!leftBlocked) return leftRoute;
-        if (!rightBlocked) return rightRoute;
-        return null;
     }
 
     private static (Side srcSide, Side tgtSide)[] SelectSidePairs(
@@ -311,7 +207,7 @@ public class LayoutEngine
                 var tgtPt = AttachPoint(tgtRect, pair.tgtSide, 0.5);
                 var route = BuildRouteSegments(
                     srcPt, pair.srcSide, tgtPt, pair.tgtSide, srcRect, tgtRect, obstacles, laneOffset: 0);
-                var score = ScoreRoute(route, obstacles, pair, natural);
+                var score = ScoreRoute(route, obstacles, pair, natural, srcRect, tgtRect);
 
                 if (score < bestScore)
                 {
@@ -402,8 +298,8 @@ public class LayoutEngine
                     : Math.Min(srcRect.Left, tgtRect.Left) - 30 - Math.Abs(laneOffset);
                 pts.Add(exitPt);
                 pts.Add(new Point(extreme, exitPt.Y));
-                pts.Add(new Point(extreme, entryPt.Y));
-                pts.Add(entryPt);
+                pts.Add(new Point(extreme, tgtPt.Y));
+                pts.Add(tgtPt);
             }
             else
             {
@@ -446,8 +342,8 @@ public class LayoutEngine
                     : Math.Min(srcRect.Top, tgtRect.Top) - 30 - Math.Abs(laneOffset);
                 pts.Add(exitPt);
                 pts.Add(new Point(exitPt.X, extreme));
-                pts.Add(new Point(entryPt.X, extreme));
-                pts.Add(entryPt);
+                pts.Add(new Point(tgtPt.X, extreme));
+                pts.Add(tgtPt);
             }
             else
             {
@@ -581,10 +477,33 @@ public class LayoutEngine
                     changed = true;
                     break;
                 }
+
+                if (ArrowRoute.AreOpposite(a.Direction, b.Direction) && PointsClose(a.End, b.Start))
+                {
+                    var replacement = MergeOppositeSegments(a, b);
+                    result.RemoveAt(i + 1);
+                    result.RemoveAt(i);
+                    if (replacement != null)
+                        result.Insert(i, replacement);
+                    changed = true;
+                    break;
+                }
             }
         } while (changed);
 
         return result.Where(s => s.Length > 0.1).ToList();
+    }
+
+    private static RouteSegment? MergeOppositeSegments(RouteSegment a, RouteSegment b)
+    {
+        var diff = a.Length - b.Length;
+        if (Math.Abs(diff) < 0.1)
+            return null;
+
+        if (diff > 0)
+            return new RouteSegment(a.X, a.Y, a.Direction, diff);
+
+        return new RouteSegment(a.X, a.Y, b.Direction, -diff);
     }
 
     // ── Obstacle avoidance ──────────────────────────────────────────
@@ -715,13 +634,16 @@ public class LayoutEngine
         List<RouteSegment> route,
         List<Rect> obstacles,
         (Side srcSide, Side tgtSide) pair,
-        (Side srcSide, Side tgtSide) natural)
+        (Side srcSide, Side tgtSide) natural,
+        Rect srcRect,
+        Rect tgtRect)
     {
         if (route.Count == 0) return double.PositiveInfinity;
 
         var score = route.Sum(s => s.Length);
         score += Math.Max(0, route.Count - 1) * 180.0;
         score += SidePairPenalty(pair, natural);
+        score += DirectionConsistencyPenalty(pair, srcRect, tgtRect);
 
         if (pair != natural)
             score += 40.0;
@@ -735,8 +657,6 @@ public class LayoutEngine
     private static bool RouteIntersectsObstacles(List<RouteSegment> route, List<Rect> obstacles) =>
         route.Any(seg => obstacles.Any(rect => SegmentIntersectsRect(seg, rect)));
 
-    private static double RouteLength(List<RouteSegment> route) => route.Sum(seg => seg.Length);
-
     private static double SidePairPenalty(
         (Side srcSide, Side tgtSide) pair,
         (Side srcSide, Side tgtSide) natural)
@@ -748,6 +668,29 @@ public class LayoutEngine
             penalty += 260.0;
 
         return penalty;
+    }
+
+    private static double DirectionConsistencyPenalty(
+        (Side srcSide, Side tgtSide) pair,
+        Rect srcRect,
+        Rect tgtRect)
+    {
+        var dx = Center(tgtRect).X - Center(srcRect).X;
+        var dy = Center(tgtRect).Y - Center(srcRect).Y;
+        var horizontalDominant = Math.Abs(dx) >= Math.Abs(dy);
+
+        return pair switch
+        {
+            (Side.Bottom, Side.Top) when dy <= 0 => 1200.0,
+            (Side.Top, Side.Bottom) when dy >= 0 => 1200.0,
+            (Side.Right, Side.Left) when dx <= 0 => 1200.0,
+            (Side.Left, Side.Right) when dx >= 0 => 1200.0,
+            (Side.Bottom, Side.Top) when horizontalDominant => 900.0,
+            (Side.Top, Side.Bottom) when horizontalDominant => 900.0,
+            (Side.Right, Side.Left) when !horizontalDominant => 900.0,
+            (Side.Left, Side.Right) when !horizontalDominant => 900.0,
+            _ => 0.0
+        };
     }
 
     private static int SideDistance(Side a, Side b)
@@ -769,7 +712,8 @@ public class LayoutEngine
         var firstSeg = route[0];
         var lastSeg = route[^1];
         var middle = route.GetRange(1, route.Count - 2);
-        middle = SimplifyRoute(middle, obstacles);
+        var preferVerticalFirst = IsVertical(firstSeg.Direction) && IsVertical(lastSeg.Direction);
+        middle = SimplifyRoute(middle, obstacles, preferVerticalFirst);
 
         var result = new List<RouteSegment> { firstSeg };
         result.AddRange(middle);
@@ -777,7 +721,10 @@ public class LayoutEngine
         return NormalizeSegments(RemoveRouteCycles(result));
     }
 
-    private static List<RouteSegment> SimplifyRoute(List<RouteSegment> route, List<Rect> obstacles)
+    private static List<RouteSegment> SimplifyRoute(
+        List<RouteSegment> route,
+        List<Rect> obstacles,
+        bool preferVerticalFirst = false)
     {
         var current = RemoveRouteCycles(route);
         bool changed;
@@ -788,7 +735,7 @@ public class LayoutEngine
             current = RemoveRouteCycles(current);
             for (var i = 0; i < current.Count - 2; i++)
             {
-                var replacement = TryShortcut(current[i].Start, current[i + 2].End, obstacles);
+                var replacement = TryShortcut(current[i].Start, current[i + 2].End, obstacles, preferVerticalFirst);
                 if (replacement == null) continue;
 
                 var next = new List<RouteSegment>();
@@ -844,7 +791,11 @@ public class LayoutEngine
         return points;
     }
 
-    private static List<RouteSegment>? TryShortcut(Point start, Point end, List<Rect> obstacles)
+    private static List<RouteSegment>? TryShortcut(
+        Point start,
+        Point end,
+        List<Rect> obstacles,
+        bool preferVerticalFirst)
     {
         var direct = PointsCloseX(start, end) || PointsCloseY(start, end)
             ? PointsToSegments([start, end])
@@ -852,13 +803,16 @@ public class LayoutEngine
         if (direct.Count == 1 && !RouteIntersectsObstacles(direct, obstacles))
             return direct;
 
-        var horizontalFirst = PointsToSegments([start, new Point(end.X, start.Y), end]);
-        if (horizontalFirst.Count > 0 && !RouteIntersectsObstacles(horizontalFirst, obstacles))
-            return horizontalFirst;
-
         var verticalFirst = PointsToSegments([start, new Point(start.X, end.Y), end]);
-        if (verticalFirst.Count > 0 && !RouteIntersectsObstacles(verticalFirst, obstacles))
-            return verticalFirst;
+        var horizontalFirst = PointsToSegments([start, new Point(end.X, start.Y), end]);
+        var primary = preferVerticalFirst ? verticalFirst : horizontalFirst;
+        var secondary = preferVerticalFirst ? horizontalFirst : verticalFirst;
+
+        if (primary.Count > 0 && !RouteIntersectsObstacles(primary, obstacles))
+            return primary;
+
+        if (secondary.Count > 0 && !RouteIntersectsObstacles(secondary, obstacles))
+            return secondary;
 
         return null;
     }
@@ -964,6 +918,8 @@ public class LayoutEngine
     private static bool PointsCloseX(Point a, Point b) => Math.Abs(a.X - b.X) < 0.1;
 
     private static bool PointsCloseY(Point a, Point b) => Math.Abs(a.Y - b.Y) < 0.1;
+
+    private static bool IsVertical(Direction direction) => direction is Direction.Up or Direction.Down;
 
     private static Point Center(Rect r) => new(r.X + r.Width / 2, r.Y + r.Height / 2);
 
