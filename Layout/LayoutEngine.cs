@@ -7,6 +7,8 @@ internal enum Side { Left, Right, Top, Bottom }
 
 public class LayoutEngine
 {
+    private static readonly double[] LaneOffsets = [0.0, 8.0, -8.0, 16.0, -16.0, 24.0, -24.0];
+
     private const double CharWidth = 7.5;
     private const double LineHeight = 18.0;
     private const double ClassPadH = 12.0;
@@ -14,7 +16,7 @@ public class LayoutEngine
     private const double MaxTextWidth = 176.0;
     private const double MaxClassWidth = 200.0;
     private const double MinClassWidth = 60.0;
-    private const double ClassGap = 10.0;
+    private const double ClassGap = 30.0;
     private const double NsPadding = 16.0;
     private const double NsLabelHeight = 22.0;
     private const double NsGap = 20.0;
@@ -131,30 +133,53 @@ public class LayoutEngine
             var srcPt = AttachPoint(srcRect, srcSide, srcFractions[i]);
             var tgtPt = AttachPoint(tgtRect, tgtSide, tgtFractions[i]);
 
-            var pts = RouteOrthogonal(srcPt, srcSide, tgtPt, tgtSide, srcRect, tgtRect);
-            var allSegs = PointsToSegments(pts);
-            if (allSegs.Count < 2) continue;
-
-            // 最初(srcPt→exitPt)と最後(entryPt→tgtPt)は辺への接続セグメント。
-            // AvoidObstacles に渡すと方向が変わり辺との整合が壊れるため対象外にする。
-            var firstSeg = allSegs[0];
-            var lastSeg  = allSegs[^1];
-            var middleSegs = allSegs.Count > 2
-                ? allSegs.GetRange(1, allSegs.Count - 2)
-                : new List<RouteSegment>();
-
             var obstacles = BuildObstacles(edge.Source, edge.Target, classRects, result);
-            middleSegs = AvoidObstacles(middleSegs, obstacles);
-            middleSegs = NormalizeSegments(middleSegs);
+            List<RouteSegment>? segs = null;
+            foreach (var laneOffset in LaneOffsets)
+            {
+                var candidate = BuildRouteSegments(
+                    srcPt, srcSide, tgtPt, tgtSide, srcRect, tgtRect, obstacles, laneOffset);
+                if (candidate.Count == 0) continue;
 
-            var segs = new List<RouteSegment> { firstSeg };
-            segs.AddRange(middleSegs);
-            segs.Add(lastSeg);
-            segs = NormalizeSegments(segs);
+                segs = candidate;
+                if (!OverlapsExistingRoute(candidate, result.Arrows))
+                    break;
+            }
 
-            if (segs.Count > 0)
+            if (segs is { Count: > 0 })
                 result.Arrows.Add(new ArrowRoute(segs, edge.Kind));
         }
+    }
+
+    private static List<RouteSegment> BuildRouteSegments(
+        Point srcPt,
+        Side srcSide,
+        Point tgtPt,
+        Side tgtSide,
+        Rect srcRect,
+        Rect tgtRect,
+        List<Rect> obstacles,
+        double laneOffset)
+    {
+        var pts = RouteOrthogonal(srcPt, srcSide, tgtPt, tgtSide, srcRect, tgtRect, laneOffset);
+        var allSegs = PointsToSegments(pts);
+        if (allSegs.Count < 2) return [];
+
+        // 最初(srcPt→exitPt)と最後(entryPt→tgtPt)は辺への接続セグメント。
+        // AvoidObstacles に渡すと方向が変わり辺との整合が壊れるため対象外にする。
+        var firstSeg = allSegs[0];
+        var lastSeg  = allSegs[^1];
+        var middleSegs = allSegs.Count > 2
+            ? allSegs.GetRange(1, allSegs.Count - 2)
+            : new List<RouteSegment>();
+
+        middleSegs = AvoidObstacles(middleSegs, obstacles);
+        middleSegs = NormalizeSegments(middleSegs);
+
+        var segs = new List<RouteSegment> { firstSeg };
+        segs.AddRange(middleSegs);
+        segs.Add(lastSeg);
+        return NormalizeSegments(segs);
     }
 
     private static void AddToGroup<TKey, TVal>(
@@ -187,7 +212,13 @@ public class LayoutEngine
     };
 
     private static List<Point> RouteOrthogonal(
-        Point srcPt, Side srcSide, Point tgtPt, Side tgtSide, Rect srcRect, Rect tgtRect)
+        Point srcPt,
+        Side srcSide,
+        Point tgtPt,
+        Side tgtSide,
+        Rect srcRect,
+        Rect tgtRect,
+        double laneOffset)
     {
         var pts = new List<Point> { srcPt };
         var exitPt  = Extend(srcPt, srcSide, RoutingMargin);
@@ -201,8 +232,8 @@ public class LayoutEngine
             if (srcSide == tgtSide)
             {
                 double extreme = srcSide == Side.Right
-                    ? Math.Max(srcRect.Right, tgtRect.Right) + 30
-                    : Math.Min(srcRect.Left, tgtRect.Left) - 30;
+                    ? Math.Max(srcRect.Right, tgtRect.Right) + 30 + Math.Abs(laneOffset)
+                    : Math.Min(srcRect.Left, tgtRect.Left) - 30 - Math.Abs(laneOffset);
                 pts.Add(exitPt);
                 pts.Add(new Point(extreme, exitPt.Y));
                 pts.Add(new Point(extreme, entryPt.Y));
@@ -217,8 +248,8 @@ public class LayoutEngine
                 if (wouldReverse)
                 {
                     double extreme = srcSide == Side.Right
-                        ? Math.Max(exitPt.X, entryPt.X) + 30
-                        : Math.Min(exitPt.X, entryPt.X) - 30;
+                        ? Math.Max(exitPt.X, entryPt.X) + 30 + Math.Abs(laneOffset)
+                        : Math.Min(exitPt.X, entryPt.X) - 30 - Math.Abs(laneOffset);
                     pts.Add(exitPt);
                     pts.Add(new Point(extreme, exitPt.Y));
                     pts.Add(new Point(extreme, entryPt.Y));
@@ -226,7 +257,7 @@ public class LayoutEngine
                 }
                 else
                 {
-                    double midX = (exitPt.X + entryPt.X) / 2;
+                    double midX = (exitPt.X + entryPt.X) / 2 + laneOffset;
                     pts.Add(exitPt);
                     if (Math.Abs(exitPt.Y - entryPt.Y) < 1)
                     {
@@ -246,8 +277,8 @@ public class LayoutEngine
             if (srcSide == tgtSide)
             {
                 double extreme = srcSide == Side.Bottom
-                    ? Math.Max(srcRect.Bottom, tgtRect.Bottom) + 30
-                    : Math.Min(srcRect.Top, tgtRect.Top) - 30;
+                    ? Math.Max(srcRect.Bottom, tgtRect.Bottom) + 30 + Math.Abs(laneOffset)
+                    : Math.Min(srcRect.Top, tgtRect.Top) - 30 - Math.Abs(laneOffset);
                 pts.Add(exitPt);
                 pts.Add(new Point(exitPt.X, extreme));
                 pts.Add(new Point(entryPt.X, extreme));
@@ -261,8 +292,8 @@ public class LayoutEngine
                 if (wouldReverse)
                 {
                     double extreme = srcSide == Side.Bottom
-                        ? Math.Max(exitPt.Y, entryPt.Y) + 30
-                        : Math.Min(exitPt.Y, entryPt.Y) - 30;
+                        ? Math.Max(exitPt.Y, entryPt.Y) + 30 + Math.Abs(laneOffset)
+                        : Math.Min(exitPt.Y, entryPt.Y) - 30 - Math.Abs(laneOffset);
                     pts.Add(exitPt);
                     pts.Add(new Point(exitPt.X, extreme));
                     pts.Add(new Point(entryPt.X, extreme));
@@ -270,7 +301,7 @@ public class LayoutEngine
                 }
                 else
                 {
-                    double midY = (exitPt.Y + entryPt.Y) / 2;
+                    double midY = (exitPt.Y + entryPt.Y) / 2 + laneOffset;
                     pts.Add(exitPt);
                     if (Math.Abs(exitPt.X - entryPt.X) < 1)
                     {
@@ -291,7 +322,16 @@ public class LayoutEngine
             // exitPt から先に垂直移動してから水平移動で entryPt へ向かう。
             // 逆（先に水平）だと srcSide と逆方向のセグメントが生まれる場合がある。
             pts.Add(exitPt);
-            pts.Add(new Point(exitPt.X, entryPt.Y));
+            if (Math.Abs(laneOffset) < 0.1)
+            {
+                pts.Add(new Point(exitPt.X, entryPt.Y));
+            }
+            else
+            {
+                var laneX = exitPt.X + (srcSide == Side.Right ? Math.Abs(laneOffset) : -Math.Abs(laneOffset));
+                pts.Add(new Point(laneX, exitPt.Y));
+                pts.Add(new Point(laneX, entryPt.Y));
+            }
             pts.Add(entryPt);
         }
         else
@@ -299,7 +339,16 @@ public class LayoutEngine
             // src が垂直接続（Top/Bottom）、tgt が水平接続（Left/Right）
             // exitPt から先に水平移動してから垂直移動で entryPt へ向かう。
             pts.Add(exitPt);
-            pts.Add(new Point(entryPt.X, exitPt.Y));
+            if (Math.Abs(laneOffset) < 0.1)
+            {
+                pts.Add(new Point(entryPt.X, exitPt.Y));
+            }
+            else
+            {
+                var laneY = exitPt.Y + (srcSide == Side.Bottom ? Math.Abs(laneOffset) : -Math.Abs(laneOffset));
+                pts.Add(new Point(exitPt.X, laneY));
+                pts.Add(new Point(entryPt.X, laneY));
+            }
             pts.Add(entryPt);
         }
 
@@ -360,7 +409,7 @@ public class LayoutEngine
                 var a = result[i];
                 var b = result[i + 1];
 
-                if (a.Direction == b.Direction)
+                if (a.Direction == b.Direction && PointsClose(a.End, b.Start))
                 {
                     result[i] = new RouteSegment(a.X, a.Y, a.Direction, a.Length + b.Length);
                     result.RemoveAt(i + 1);
@@ -497,6 +546,48 @@ public class LayoutEngine
         }
     }
 
+    private static bool OverlapsExistingRoute(List<RouteSegment> candidate, List<ArrowRoute> existingRoutes)
+    {
+        foreach (var candidateSeg in candidate)
+        {
+            foreach (var route in existingRoutes)
+            {
+                foreach (var existingSeg in route.Segments)
+                {
+                    if (SegmentsOverlap(candidateSeg, existingSeg))
+                        return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool SegmentsOverlap(RouteSegment a, RouteSegment b)
+    {
+        var aHoriz = a.Direction is Direction.Right or Direction.Left;
+        var bHoriz = b.Direction is Direction.Right or Direction.Left;
+        if (aHoriz != bHoriz) return false;
+
+        if (aHoriz)
+        {
+            if (Math.Abs(a.Y - b.Y) >= 0.1) return false;
+            return RangesOverlap(a.X, a.End.X, b.X, b.End.X);
+        }
+
+        if (Math.Abs(a.X - b.X) >= 0.1) return false;
+        return RangesOverlap(a.Y, a.End.Y, b.Y, b.End.Y);
+    }
+
+    private static bool RangesOverlap(double a1, double a2, double b1, double b2)
+    {
+        var minA = Math.Min(a1, a2);
+        var maxA = Math.Max(a1, a2);
+        var minB = Math.Min(b1, b2);
+        var maxB = Math.Max(b1, b2);
+        return Math.Min(maxA, maxB) - Math.Max(minA, minB) > 0.1;
+    }
+
     // ── Size calculation ────────────────────────────────────────────
 
     private static void CalcSize(ClassNode node, Dictionary<ClassNode, Size> sizes)
@@ -549,6 +640,9 @@ public class LayoutEngine
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
+
+    private static bool PointsClose(Point a, Point b) =>
+        Math.Abs(a.X - b.X) < 0.1 && Math.Abs(a.Y - b.Y) < 0.1;
 
     private static Point Center(Rect r) => new(r.X + r.Width / 2, r.Y + r.Height / 2);
 

@@ -54,8 +54,13 @@ public class ArrowRoute
     {
         for (int i = 1; i < segs.Count; i++)
         {
-            var prev = segs[i - 1].Direction;
-            var curr = segs[i].Direction;
+            var prevSeg = segs[i - 1];
+            var currSeg = segs[i];
+            var prev = prevSeg.Direction;
+            var curr = currSeg.Direction;
+            if (!PointsClose(prevSeg.End, currSeg.Start))
+                throw new InvalidOperationException(
+                    $"Segment[{i}] start ({currSeg.Start}) is not connected to segment[{i - 1}] end ({prevSeg.End}).");
             if (curr == prev)
                 throw new InvalidOperationException(
                     $"Segment[{i}] has the same direction ({curr}) as segment[{i - 1}].");
@@ -69,6 +74,9 @@ public class ArrowRoute
         (a == Direction.Down  && b == Direction.Up)    ||
         (a == Direction.Left  && b == Direction.Right) ||
         (a == Direction.Right && b == Direction.Left);
+
+    private static bool PointsClose(Point a, Point b) =>
+        Math.Abs(a.X - b.X) < 0.1 && Math.Abs(a.Y - b.Y) < 0.1;
 
     public Point Start => Segments.Count > 0 ? Segments[0].Start : new();
     public Point End   => Segments.Count > 0 ? Segments[^1].End  : new();
