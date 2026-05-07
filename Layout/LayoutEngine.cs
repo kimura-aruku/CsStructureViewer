@@ -16,6 +16,8 @@ internal record RouteRequest(
     NamespaceNode? SourceNamespace,
     NamespaceNode? TargetNamespace);
 
+internal readonly record struct SearchEdge(int To, Direction Direction, double Length);
+
 public class LayoutEngine
 {
     private static readonly double[] LaneOffsets =
@@ -42,6 +44,7 @@ public class LayoutEngine
     private const double NsGap = 20.0;
     private const double MaxNsWidth = 600.0;
     private const double RoutingMargin = 18.0;
+    private const double ObstaclePadding = 6.0;
     private const double ArrowTerminalClearance = 18.0;
     private const double FolderMinWidth = 140.0;
     private const double FolderHeight = 54.0;
@@ -270,7 +273,9 @@ public class LayoutEngine
         List<Rect> obstacles,
         double laneOffset)
     {
-        var pts = RouteOrthogonal(srcPt, srcSide, tgtPt, tgtSide, srcRect, tgtRect, laneOffset);
+        var pts = RouteOrthogonalGrid(srcPt, srcSide, tgtPt, tgtSide, srcRect, tgtRect, obstacles, laneOffset);
+        if (pts.Count == 0) return [];
+
         var allSegs = PointsToSegments(pts);
         if (allSegs.Count == 0) return [];
 
@@ -293,6 +298,203 @@ public class LayoutEngine
         segs.Add(lastSeg);
         var route = NormalizeSameDirectionSegments(SimplifyMiddleRoute(segs, obstacles));
         return IntersectsEndpointRects(route, srcRect, tgtRect) ? [] : route;
+    }
+
+    private static List<Point> RouteOrthogonalGrid(
+        Point srcPt,
+        Side srcSide,
+        Point tgtPt,
+        Side tgtSide,
+        Rect srcRect,
+        Rect tgtRect,
+        List<Rect> obstacles,
+        double laneOffset)
+    {
+        var exitPt = Extend(srcPt, srcSide, RoutingMargin + Math.Abs(laneOffset));
+        var entryPt = Extend(tgtPt, tgtSide, RoutingMargin + Math.Abs(laneOffset));
+        var inflatedObstacles = obstacles.Select(rect => InflateRect(rect, ObstaclePadding)).ToList();
+        var middle = FindOrthogonalPath(exitPt, entryPt, inflatedObstacles, srcRect, tgtRect, laneOffset);
+        if (middle.Count == 0) return [];
+
+        var points = new List<Point> { srcPt };
+        if (!PointsClose(srcPt, exitPt))
+            points.Add(exitPt);
+
+        points.AddRange(middle.Skip(1).Take(Math.Max(0, middle.Count - 2)));
+
+        if (!PointsClose(points[^1], entryPt))
+            points.Add(entryPt);
+
+        if (!PointsClose(points[^1], tgtPt))
+            points.Add(tgtPt);
+
+        return RemoveDuplicatePoints(points);
+    }
+
+    private static List<Point> FindOrthogonalPath(
+        Point start,
+        Point goal,
+        List<Rect> obstacles,
+        Rect srcRect,
+        Rect tgtRect,
+        double laneOffset)
+    {
+        if (PointsClose(start, goal))
+            return [start, goal];
+
+        var xs = new SortedSet<double>();
+        var ys = new SortedSet<double>();
+        AddGridCoordinate(xs, start.X);
+        AddGridCoordinate(xs, goal.X);
+        AddGridCoordinate(ys, start.Y);
+        AddGridCoordinate(ys, goal.Y);
+
+        var bounds = BuildRouteBounds(start, goal, obstacles, srcRect, tgtRect);
+        AddGridCoordinate(xs, bounds.Left);
+        AddGridCoordinate(xs, bounds.Right);
+        AddGridCoordinate(ys, bounds.Top);
+        AddGridCoordinate(ys, bounds.Bottom);
+
+        var detour = RoutingMargin + Math.Abs(laneOffset);
+        foreach (var rect in obstacles)
+        {
+            AddGridCoordinate(xs, rect.Left);
+            AddGridCoordinate(xs, rect.Right);
+            AddGridCoordinate(xs, rect.Left - detour);
+            AddGridCoordinate(xs, rect.Right + detour);
+            AddGridCoordinate(ys, rect.Top);
+            AddGridCoordinate(ys, rect.Bottom);
+            AddGridCoordinate(ys, rect.Top - detour);
+            AddGridCoordinate(ys, rect.Bottom + detour);
+        }
+
+        var xList = xs.Where(x => x >= bounds.Left - 0.1 && x <= bounds.Right + 0.1).ToList();
+        var yList = ys.Where(y => y >= bounds.Top - 0.1 && y <= bounds.Bottom + 0.1).ToList();
+        var points = new List<Point>();
+        var nodeByGrid = new Dictionary<(int x, int y), int>();
+        var startNode = -1;
+        var goalNode = -1;
+
+        for (var yi = 0; yi < yList.Count; yi++)
+        {
+            for (var xi = 0; xi < xList.Count; xi++)
+            {
+                var point = new Point(xList[xi], yList[yi]);
+                var isEndpoint = PointsClose(point, start) || PointsClose(point, goal);
+                if (!isEndpoint && PointInsideAnyObstacle(point, obstacles))
+                    continue;
+
+                var node = points.Count;
+                points.Add(point);
+                nodeByGrid[(xi, yi)] = node;
+                if (PointsClose(point, start)) startNode = node;
+                if (PointsClose(point, goal)) goalNode = node;
+            }
+        }
+
+        if (startNode < 0 || goalNode < 0)
+            return [];
+
+        var graph = BuildSearchGraph(xList, yList, points, nodeByGrid, obstacles);
+        return SearchPath(points, graph, startNode, goalNode);
+    }
+
+    private static Dictionary<int, List<SearchEdge>> BuildSearchGraph(
+        List<double> xs,
+        List<double> ys,
+        List<Point> points,
+        Dictionary<(int x, int y), int> nodeByGrid,
+        List<Rect> obstacles)
+    {
+        var graph = new Dictionary<int, List<SearchEdge>>();
+
+        foreach (var kv in nodeByGrid)
+        {
+            var (xi, yi) = kv.Key;
+            var fromNode = kv.Value;
+            TryAddEdge(xi, yi, xi + 1, yi, Direction.Right);
+            TryAddEdge(xi, yi, xi - 1, yi, Direction.Left);
+            TryAddEdge(xi, yi, xi, yi + 1, Direction.Down);
+            TryAddEdge(xi, yi, xi, yi - 1, Direction.Up);
+
+            void TryAddEdge(int fromX, int fromY, int toX, int toY, Direction direction)
+            {
+                if (!nodeByGrid.TryGetValue((toX, toY), out var toNode))
+                    return;
+
+                var from = points[fromNode];
+                var to = points[toNode];
+                if (!SegmentClear(from, to, obstacles))
+                    return;
+
+                if (!graph.TryGetValue(fromNode, out var edges))
+                {
+                    edges = new List<SearchEdge>();
+                    graph[fromNode] = edges;
+                }
+
+                edges.Add(new SearchEdge(toNode, direction, Distance(from, to)));
+            }
+        }
+
+        return graph;
+    }
+
+    private static List<Point> SearchPath(
+        List<Point> points,
+        Dictionary<int, List<SearchEdge>> graph,
+        int startNode,
+        int goalNode)
+    {
+        var queue = new PriorityQueue<(int node, Direction? dir), double>();
+        var best = new Dictionary<(int node, Direction? dir), double>();
+        var previous = new Dictionary<(int node, Direction? dir), (int node, Direction? dir)>();
+        var startState = (startNode, (Direction?)null);
+        best[startState] = 0;
+        queue.Enqueue(startState, Heuristic(points[startNode], points[goalNode]));
+
+        (int node, Direction? dir)? goalState = null;
+        while (queue.Count > 0)
+        {
+            var state = queue.Dequeue();
+            var currentCost = best[state];
+            if (state.node == goalNode)
+            {
+                goalState = state;
+                break;
+            }
+
+            if (!graph.TryGetValue(state.node, out var edges))
+                continue;
+
+            foreach (var edge in edges)
+            {
+                var bendCost = state.dir.HasValue && state.dir.Value != edge.Direction ? 80.0 : 0.0;
+                var nextCost = currentCost + edge.Length + bendCost;
+                var nextState = (edge.To, (Direction?)edge.Direction);
+                if (best.TryGetValue(nextState, out var known) && known <= nextCost)
+                    continue;
+
+                best[nextState] = nextCost;
+                previous[nextState] = state;
+                queue.Enqueue(nextState, nextCost + Heuristic(points[edge.To], points[goalNode]));
+            }
+        }
+
+        if (goalState == null)
+            return [];
+
+        var states = new List<(int node, Direction? dir)>();
+        var cursor = goalState.Value;
+        states.Add(cursor);
+        while (previous.TryGetValue(cursor, out var prev))
+        {
+            cursor = prev;
+            states.Add(cursor);
+        }
+
+        states.Reverse();
+        return RemoveDuplicatePoints(states.Select(state => points[state.node]).ToList());
     }
 
     private static (Side srcSide, Side tgtSide)[] SelectSidePairs(
@@ -1111,6 +1313,77 @@ public class LayoutEngine
         var minB = Math.Min(b1, b2);
         var maxB = Math.Max(b1, b2);
         return Math.Min(maxA, maxB) - Math.Max(minA, minB) > 0.1;
+    }
+
+    private static Rect InflateRect(Rect rect, double amount)
+    {
+        rect.Inflate(amount, amount);
+        return rect;
+    }
+
+    private static Rect BuildRouteBounds(Point start, Point goal, List<Rect> obstacles, Rect srcRect, Rect tgtRect)
+    {
+        var minX = Math.Min(Math.Min(start.X, goal.X), Math.Min(srcRect.Left, tgtRect.Left));
+        var maxX = Math.Max(Math.Max(start.X, goal.X), Math.Max(srcRect.Right, tgtRect.Right));
+        var minY = Math.Min(Math.Min(start.Y, goal.Y), Math.Min(srcRect.Top, tgtRect.Top));
+        var maxY = Math.Max(Math.Max(start.Y, goal.Y), Math.Max(srcRect.Bottom, tgtRect.Bottom));
+
+        foreach (var rect in obstacles)
+        {
+            minX = Math.Min(minX, rect.Left);
+            maxX = Math.Max(maxX, rect.Right);
+            minY = Math.Min(minY, rect.Top);
+            maxY = Math.Max(maxY, rect.Bottom);
+        }
+
+        const double padding = 80.0;
+        return new Rect(
+            minX - padding,
+            minY - padding,
+            Math.Max(1.0, maxX - minX + padding * 2),
+            Math.Max(1.0, maxY - minY + padding * 2));
+    }
+
+    private static void AddGridCoordinate(SortedSet<double> values, double value) =>
+        values.Add(Math.Round(value, 2));
+
+    private static bool PointInsideAnyObstacle(Point point, List<Rect> obstacles) =>
+        obstacles.Any(rect => PointInsideRect(point, rect));
+
+    private static bool PointInsideRect(Point point, Rect rect) =>
+        point.X > rect.Left && point.X < rect.Right &&
+        point.Y > rect.Top && point.Y < rect.Bottom;
+
+    private static bool SegmentClear(Point from, Point to, List<Rect> obstacles)
+    {
+        if (!PointsCloseX(from, to) && !PointsCloseY(from, to))
+            return false;
+
+        var direction = PointsCloseY(from, to)
+            ? (to.X >= from.X ? Direction.Right : Direction.Left)
+            : (to.Y >= from.Y ? Direction.Down : Direction.Up);
+        var length = Distance(from, to);
+        if (length <= 0.1)
+            return false;
+
+        var segment = new RouteSegment(from.X, from.Y, direction, length);
+        return !obstacles.Any(rect => SegmentIntersectsRect(segment, rect));
+    }
+
+    private static double Distance(Point a, Point b) =>
+        Math.Abs(a.X - b.X) + Math.Abs(a.Y - b.Y);
+
+    private static double Heuristic(Point a, Point b) => Distance(a, b);
+
+    private static List<Point> RemoveDuplicatePoints(List<Point> points)
+    {
+        var result = new List<Point>();
+        foreach (var point in points)
+        {
+            if (result.Count == 0 || !PointsClose(result[^1], point))
+                result.Add(point);
+        }
+        return result;
     }
 
     // ── Size calculation ────────────────────────────────────────────
