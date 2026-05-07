@@ -16,7 +16,16 @@ internal record RouteRequest(
 
 public class LayoutEngine
 {
-    private static readonly double[] LaneOffsets = [0.0, 8.0, -8.0, 16.0, -16.0, 24.0, -24.0];
+    private static readonly double[] LaneOffsets =
+    [
+        0.0,
+        8.0, -8.0,
+        16.0, -16.0,
+        24.0, -24.0,
+        32.0, -32.0,
+        40.0, -40.0,
+        48.0, -48.0
+    ];
 
     private const double CharWidth = 7.5;
     private const double LineHeight = 18.0;
@@ -31,6 +40,7 @@ public class LayoutEngine
     private const double NsGap = 20.0;
     private const double MaxNsWidth = 600.0;
     private const double RoutingMargin = 18.0;
+    private const double ArrowTerminalClearance = 18.0;
     private const double FolderMinWidth = 140.0;
     private const double FolderHeight = 54.0;
 
@@ -391,8 +401,8 @@ public class LayoutEngine
             {
                 // tgt が src より手前（srcSide と逆方向）にある場合は逆方向セグメントが
                 // 発生するためループ型に切り替える
-                bool wouldReverse = (srcSide == Side.Right && tgtPt.X < srcPt.X) ||
-                                    (srcSide == Side.Left  && tgtPt.X > srcPt.X);
+                bool wouldReverse = (srcSide == Side.Right && (tgtPt.X < srcPt.X || entryPt.X < exitPt.X)) ||
+                                    (srcSide == Side.Left  && (tgtPt.X > srcPt.X || entryPt.X > exitPt.X));
                 if (wouldReverse)
                 {
                     double extreme = srcSide == Side.Right
@@ -405,16 +415,25 @@ public class LayoutEngine
                 }
                 else
                 {
-                    double midX = (srcPt.X + tgtPt.X) / 2 + laneOffset;
-                    if (Math.Abs(exitPt.Y - entryPt.Y) < 1)
+                    if (Math.Abs(exitPt.Y - entryPt.Y) < 1 &&
+                        Math.Abs(laneOffset) < 0.1 &&
+                        HasTerminalClearance(srcPt, tgtPt))
                     {
                         pts.Add(tgtPt);
                     }
                     else
                     {
-                        pts.Add(new Point(midX, srcPt.Y));
-                        pts.Add(new Point(midX, tgtPt.Y));
-                        pts.Add(tgtPt);
+                        var laneY = Math.Abs(laneOffset) < 0.1
+                            ? srcPt.Y
+                            : srcPt.Y + laneOffset;
+                        var midX = (exitPt.X + entryPt.X) / 2;
+
+                        pts.Add(exitPt);
+                        if (Math.Abs(laneY - exitPt.Y) >= 0.1)
+                            pts.Add(new Point(exitPt.X, laneY));
+                        pts.Add(new Point(midX, laneY));
+                        pts.Add(new Point(midX, entryPt.Y));
+                        pts.Add(entryPt);
                     }
                 }
             }
@@ -434,8 +453,8 @@ public class LayoutEngine
             else
             {
                 // tgt が src より手前（srcSide と逆方向）にある場合はループ型に切り替える
-                bool wouldReverse = (srcSide == Side.Bottom && tgtPt.Y < srcPt.Y) ||
-                                    (srcSide == Side.Top    && tgtPt.Y > srcPt.Y);
+                bool wouldReverse = (srcSide == Side.Bottom && (tgtPt.Y < srcPt.Y || entryPt.Y < exitPt.Y)) ||
+                                    (srcSide == Side.Top    && (tgtPt.Y > srcPt.Y || entryPt.Y > exitPt.Y));
                 if (wouldReverse)
                 {
                     double extreme = srcSide == Side.Bottom
@@ -448,16 +467,25 @@ public class LayoutEngine
                 }
                 else
                 {
-                    double midY = (srcPt.Y + tgtPt.Y) / 2 + laneOffset;
-                    if (Math.Abs(exitPt.X - entryPt.X) < 1)
+                    if (Math.Abs(exitPt.X - entryPt.X) < 1 &&
+                        Math.Abs(laneOffset) < 0.1 &&
+                        HasTerminalClearance(srcPt, tgtPt))
                     {
                         pts.Add(tgtPt);
                     }
                     else
                     {
-                        pts.Add(new Point(srcPt.X, midY));
-                        pts.Add(new Point(tgtPt.X, midY));
-                        pts.Add(tgtPt);
+                        var laneX = Math.Abs(laneOffset) < 0.1
+                            ? srcPt.X
+                            : srcPt.X + laneOffset;
+                        var midY = (exitPt.Y + entryPt.Y) / 2;
+
+                        pts.Add(exitPt);
+                        if (Math.Abs(laneX - exitPt.X) >= 0.1)
+                            pts.Add(new Point(laneX, exitPt.Y));
+                        pts.Add(new Point(laneX, midY));
+                        pts.Add(new Point(entryPt.X, midY));
+                        pts.Add(entryPt);
                     }
                 }
             }
@@ -511,6 +539,10 @@ public class LayoutEngine
         Side.Top    => new Point(pt.X, pt.Y - margin),
         _ => pt
     };
+
+    private static bool HasTerminalClearance(Point from, Point to) =>
+        Math.Abs(from.X - to.X) >= ArrowTerminalClearance ||
+        Math.Abs(from.Y - to.Y) >= ArrowTerminalClearance;
 
     // ── Point list → RouteSegment list ──────────────────────────────
 
