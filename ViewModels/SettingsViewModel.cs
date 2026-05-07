@@ -12,6 +12,7 @@ public class SettingsViewModel
 
     public ObservableCollection<ExcludePatternItem> Patterns { get; } = new();
     public ObservableCollection<ExcludePatternItem> InternalPatterns { get; } = new();
+    public RelayCommand AddPatternCommand { get; }
     public RelayCommand AddInternalPatternCommand { get; }
     public bool DebugClassTransparencyEnabled { get; set; }
 
@@ -20,29 +21,36 @@ public class SettingsViewModel
         _settings = settings;
         _settingsManager = settingsManager;
 
-        foreach (var p in settings.ExcludePatterns)
+        foreach (var p in settings.ExcludePatternRules)
             Patterns.Add(CreateItem(p, Patterns));
 
-        foreach (var p in settings.InternalExcludePatterns)
+        foreach (var p in settings.InternalExcludePatternRules)
             InternalPatterns.Add(CreateItem(p, InternalPatterns));
 
         DebugClassTransparencyEnabled = settings.DebugClassTransparencyEnabled;
 
+        AddPatternCommand = new RelayCommand(() =>
+        {
+            Patterns.Add(CreateItem(CreateDefaultRule(), Patterns));
+        });
+
         AddInternalPatternCommand = new RelayCommand(() =>
         {
-            InternalPatterns.Add(CreateItem(string.Empty, InternalPatterns));
+            InternalPatterns.Add(CreateItem(CreateDefaultRule(), InternalPatterns));
         });
     }
 
-    private ExcludePatternItem CreateItem(string pattern, ObservableCollection<ExcludePatternItem> list)
+    private ExcludePatternItem CreateItem(ExcludePatternRule rule, ObservableCollection<ExcludePatternItem> list)
     {
         ExcludePatternItem? item = null;
         item = new ExcludePatternItem(
-            pattern,
+            rule.Pattern,
+            rule.MatchFolder,
+            rule.MatchNamespace,
             addAfter: _ =>
             {
                 var idx = list.IndexOf(item!);
-                list.Insert(idx + 1, CreateItem(string.Empty, list));
+                list.Insert(idx + 1, CreateItem(CreateDefaultRule(), list));
             },
             remove: _ =>
             {
@@ -51,12 +59,24 @@ public class SettingsViewModel
         return item;
     }
 
+    private static ExcludePatternRule CreateDefaultRule() =>
+        new()
+        {
+            Pattern = string.Empty,
+            MatchFolder = true,
+            MatchNamespace = true
+        };
+
     public void Save()
     {
         _settings.ExcludePatterns.Clear();
         _settings.ExcludePatterns.AddRange(Patterns.Select(p => p.Pattern));
         _settings.InternalExcludePatterns.Clear();
         _settings.InternalExcludePatterns.AddRange(InternalPatterns.Select(p => p.Pattern));
+        _settings.ExcludePatternRules.Clear();
+        _settings.ExcludePatternRules.AddRange(Patterns.Select(p => p.ToRule()));
+        _settings.InternalExcludePatternRules.Clear();
+        _settings.InternalExcludePatternRules.AddRange(InternalPatterns.Select(p => p.ToRule()));
         _settings.DebugClassTransparencyEnabled = DebugClassTransparencyEnabled;
         _settingsManager.Save(_settings);
     }
@@ -65,6 +85,8 @@ public class SettingsViewModel
 public class ExcludePatternItem : INotifyPropertyChanged
 {
     private string _pattern;
+    private bool _matchFolder;
+    private bool _matchNamespace;
 
     public string Pattern
     {
@@ -72,18 +94,42 @@ public class ExcludePatternItem : INotifyPropertyChanged
         set => SetField(ref _pattern, value);
     }
 
+    public bool MatchFolder
+    {
+        get => _matchFolder;
+        set => SetField(ref _matchFolder, value);
+    }
+
+    public bool MatchNamespace
+    {
+        get => _matchNamespace;
+        set => SetField(ref _matchNamespace, value);
+    }
+
     public RelayCommand AddAfterCommand { get; }
     public RelayCommand RemoveCommand { get; }
 
     public ExcludePatternItem(
         string pattern,
+        bool matchFolder,
+        bool matchNamespace,
         Action<ExcludePatternItem> addAfter,
         Action<ExcludePatternItem> remove)
     {
         _pattern = pattern;
+        _matchFolder = matchFolder;
+        _matchNamespace = matchNamespace;
         AddAfterCommand = new RelayCommand(() => addAfter(this));
         RemoveCommand = new RelayCommand(() => remove(this));
     }
+
+    public ExcludePatternRule ToRule() =>
+        new()
+        {
+            Pattern = Pattern,
+            MatchFolder = MatchFolder,
+            MatchNamespace = MatchNamespace
+        };
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

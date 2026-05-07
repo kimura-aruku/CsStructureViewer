@@ -15,7 +15,7 @@ public class ProjectAnalyzer
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        var files = GetCsFiles(projectPath, settings.ExcludePatterns).ToList();
+        var files = GetCsFiles(projectPath, settings.ExcludePatternRules).ToList();
 
         var allNodes = new List<ClassNode>();
         var allRawDeps = new List<RawDependency>();
@@ -30,10 +30,21 @@ public class ProjectAnalyzer
             var tree = CSharpSyntaxTree.ParseText(code, cancellationToken: cancellationToken);
             var (nodes, rawDeps) = _classAnalyzer.Analyze(tree);
 
-            if (settings.InternalExcludePatterns.Any(p => IsInMatchingFolder(file, p)))
-                foreach (var node in nodes)
-                    if (node.NamespaceName != null)
-                        internalNamespaces.Add(node.NamespaceName);
+            foreach (var node in nodes)
+                if (IsInternalExcluded(file, node, settings.InternalExcludePatternRules) && node.NamespaceName != null)
+                    internalNamespaces.Add(node.NamespaceName);
+
+            nodes = nodes
+                .Where(node => !IsFullyExcluded(file, node, settings.ExcludePatternRules))
+                .ToList();
+
+            var includedKeys = nodes
+                .Select(node => node.FullyQualifiedName)
+                .ToHashSet(StringComparer.Ordinal);
+
+            rawDeps = rawDeps
+                .Where(dep => includedKeys.Contains(dep.Source.FullyQualifiedName))
+                .ToList();
 
             allNodes.AddRange(nodes);
             allRawDeps.AddRange(rawDeps);
@@ -46,17 +57,51 @@ public class ProjectAnalyzer
         return BuildGraph(mergedNodes, edges, internalNamespaces);
     }
 
+    private static bool IsFullyExcluded(
+        string filePath,
+        ClassNode node,
+        IReadOnlyList<ExcludePatternRule> rules) =>
+        rules.Any(rule =>
+            IsRuleEnabled(rule) &&
+            ((rule.MatchFolder && IsInMatchingFolder(filePath, rule.Pattern)) ||
+             (rule.MatchNamespace && IsMatchingNamespace(node.NamespaceName, rule.Pattern))));
+
+    private static bool IsInternalExcluded(
+        string filePath,
+        ClassNode node,
+        IReadOnlyList<ExcludePatternRule> rules) =>
+        rules.Any(rule =>
+            IsRuleEnabled(rule) &&
+            ((rule.MatchFolder && IsInMatchingFolder(filePath, rule.Pattern)) ||
+             (rule.MatchNamespace && IsMatchingNamespace(node.NamespaceName, rule.Pattern))));
+
+    private static bool IsRuleEnabled(ExcludePatternRule rule) =>
+        !string.IsNullOrWhiteSpace(rule.Pattern) &&
+        (rule.MatchFolder || rule.MatchNamespace);
+
+    private static bool IsMatchingNamespace(string? namespaceName, string pattern) =>
+        !string.IsNullOrWhiteSpace(namespaceName) &&
+        namespaceName.Equals(pattern, StringComparison.OrdinalIgnoreCase);
+
     private static bool IsInMatchingFolder(string filePath, string pattern) =>
-        !string.IsNullOrEmpty(pattern) &&
+        !string.IsNullOrWhiteSpace(pattern) &&
         filePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             .Any(seg => seg.Equals(pattern, StringComparison.OrdinalIgnoreCase));
+
+    private static IEnumerable<string> GetCsFiles(string rootPath, List<ExcludePatternRule> excludePatterns)
+    {
+        return Directory.EnumerateFiles(rootPath, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !excludePatterns.Any(p =>
+                IsRuleEnabled(p) &&
+                p.MatchFolder &&
+                IsInMatchingFolder(f, p.Pattern)));
+    }
 
     private static IEnumerable<string> GetCsFiles(string rootPath, List<string> excludePatterns)
     {
         return Directory.EnumerateFiles(rootPath, "*.cs", SearchOption.AllDirectories)
             .Where(f => !excludePatterns.Any(p =>
-                f.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                    .Any(seg => seg.Equals(p, StringComparison.OrdinalIgnoreCase))));
+                IsInMatchingFolder(f, p)));
     }
 
     private static List<ClassNode> MergePartialClasses(List<ClassNode> nodes)
@@ -97,15 +142,16 @@ public class ProjectAnalyzer
 
         foreach (var raw in rawDeps)
         {
+            if (!lookup.TryGetValue(raw.Source.FullyQualifiedName, out var source)) continue;
             if (!lookup.TryGetValue(raw.TargetTypeName, out var target)) continue;
-            if (raw.Source == target) continue;
+            if (source == target) continue;
 
             var kind = raw.IsBaseType
                 ? (target.Kind == TypeKind.Interface ? DependencyKind.Implementation : DependencyKind.Inheritance)
                 : DependencyKind.FieldReference;
 
-            if (seen.Add((raw.Source, target, kind)))
-                edges.Add(new DependencyEdge { Source = raw.Source, Target = target, Kind = kind });
+            if (seen.Add((source, target, kind)))
+                edges.Add(new DependencyEdge { Source = source, Target = target, Kind = kind });
         }
 
         return edges;

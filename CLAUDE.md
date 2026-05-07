@@ -25,4 +25,5 @@ dotnet publish -c Release
 
 - 出力先: `publish/`（csproj の `<PublishDir>` で固定）
 - フレームワーク依存形式（self-contained ではない）
+- `CsStructureViewer.exe` が起動中で `publish/` 配下のファイルがロックされている場合は、該当プロセスを終了してから再度 `dotnet publish -c Release` を実行する
 - ビルド成功を確認してからコミットする
