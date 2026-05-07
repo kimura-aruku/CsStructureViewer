@@ -472,19 +472,18 @@ public class LayoutEngine
     {
         var sourceLaneY = HorizontalLaneY(rowRects[plan.SourceRow], plan.SourceHorizontalLane);
         var targetLaneY = HorizontalLaneY(rowRects[plan.TargetRow], plan.TargetHorizontalLane);
-        var points = new List<Point>
-        {
-            sourcePoint,
-            new(sourcePoint.X, sourceLaneY)
-        };
+        var points = new List<Point> { sourcePoint };
 
         if (plan.SideLane < 0)
         {
-            points.Add(new Point(targetPoint.X, sourceLaneY));
+            var laneY = Math.Min(sourceLaneY, targetLaneY);
+            points.Add(new Point(sourcePoint.X, laneY));
+            points.Add(new Point(targetPoint.X, laneY));
         }
         else
         {
             var sideX = SideLaneX(plan.SideLane, centralX, centralWidth);
+            points.Add(new Point(sourcePoint.X, sourceLaneY));
             points.Add(new Point(sideX, sourceLaneY));
             points.Add(new Point(sideX, targetLaneY));
             points.Add(new Point(targetPoint.X, targetLaneY));
