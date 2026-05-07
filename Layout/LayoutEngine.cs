@@ -417,12 +417,10 @@ public class LayoutEngine
                                     (srcSide == Side.Left  && (tgtPt.X > srcPt.X || entryPt.X > exitPt.X));
                 if (wouldReverse)
                 {
-                    double extreme = srcSide == Side.Right
-                        ? Math.Max(exitPt.X, entryPt.X) + 30 + Math.Abs(laneOffset)
-                        : Math.Min(exitPt.X, entryPt.X) - 30 - Math.Abs(laneOffset);
+                    var laneY = GetHorizontalReverseLaneY(srcPt, tgtPt, srcRect, tgtRect, laneOffset);
                     pts.Add(exitPt);
-                    pts.Add(new Point(extreme, exitPt.Y));
-                    pts.Add(new Point(extreme, entryPt.Y));
+                    pts.Add(new Point(exitPt.X, laneY));
+                    pts.Add(new Point(entryPt.X, laneY));
                     pts.Add(entryPt);
                 }
                 else
@@ -469,12 +467,10 @@ public class LayoutEngine
                                     (srcSide == Side.Top    && (tgtPt.Y > srcPt.Y || entryPt.Y > exitPt.Y));
                 if (wouldReverse)
                 {
-                    double extreme = srcSide == Side.Bottom
-                        ? Math.Max(exitPt.Y, entryPt.Y) + 30 + Math.Abs(laneOffset)
-                        : Math.Min(exitPt.Y, entryPt.Y) - 30 - Math.Abs(laneOffset);
+                    var laneX = GetVerticalReverseLaneX(srcPt, tgtPt, srcRect, tgtRect, laneOffset);
                     pts.Add(exitPt);
-                    pts.Add(new Point(exitPt.X, extreme));
-                    pts.Add(new Point(entryPt.X, extreme));
+                    pts.Add(new Point(laneX, exitPt.Y));
+                    pts.Add(new Point(laneX, entryPt.Y));
                     pts.Add(entryPt);
                 }
                 else
@@ -555,6 +551,48 @@ public class LayoutEngine
     private static bool HasTerminalClearance(Point from, Point to) =>
         Math.Abs(from.X - to.X) >= ArrowTerminalClearance ||
         Math.Abs(from.Y - to.Y) >= ArrowTerminalClearance;
+
+    private static double GetHorizontalReverseLaneY(
+        Point srcPt,
+        Point tgtPt,
+        Rect srcRect,
+        Rect tgtRect,
+        double laneOffset)
+    {
+        var minGap = RoutingMargin + Math.Abs(laneOffset);
+        if (tgtPt.Y > srcRect.Bottom + minGap || srcPt.Y > tgtRect.Bottom + minGap)
+            return (srcPt.Y + tgtPt.Y) / 2 + laneOffset;
+
+        if (tgtPt.Y < srcRect.Top - minGap || srcPt.Y < tgtRect.Top - minGap)
+            return (srcPt.Y + tgtPt.Y) / 2 + laneOffset;
+
+        var topLane = Math.Min(srcRect.Top, tgtRect.Top) - minGap;
+        var bottomLane = Math.Max(srcRect.Bottom, tgtRect.Bottom) + minGap;
+        return Math.Abs(srcPt.Y - topLane) <= Math.Abs(srcPt.Y - bottomLane)
+            ? topLane
+            : bottomLane;
+    }
+
+    private static double GetVerticalReverseLaneX(
+        Point srcPt,
+        Point tgtPt,
+        Rect srcRect,
+        Rect tgtRect,
+        double laneOffset)
+    {
+        var minGap = RoutingMargin + Math.Abs(laneOffset);
+        if (tgtPt.X > srcRect.Right + minGap || srcPt.X > tgtRect.Right + minGap)
+            return (srcPt.X + tgtPt.X) / 2 + laneOffset;
+
+        if (tgtPt.X < srcRect.Left - minGap || srcPt.X < tgtRect.Left - minGap)
+            return (srcPt.X + tgtPt.X) / 2 + laneOffset;
+
+        var leftLane = Math.Min(srcRect.Left, tgtRect.Left) - minGap;
+        var rightLane = Math.Max(srcRect.Right, tgtRect.Right) + minGap;
+        return Math.Abs(srcPt.X - leftLane) <= Math.Abs(srcPt.X - rightLane)
+            ? leftLane
+            : rightLane;
+    }
 
     // ── Point list → RouteSegment list ──────────────────────────────
 

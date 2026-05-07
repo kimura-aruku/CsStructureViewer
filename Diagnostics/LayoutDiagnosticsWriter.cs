@@ -94,6 +94,15 @@ public static class LayoutDiagnosticsWriter
                 issues.Add($"Disconnected segment: {i - 1} -> {i}.");
         }
 
+        for (var i = 0; i < arrow.Segments.Count; i++)
+        {
+            for (var j = i + 1; j < arrow.Segments.Count; j++)
+            {
+                if (SegmentsOverlap(arrow.Segments[i], arrow.Segments[j]))
+                    issues.Add($"Self-overlap: segment[{i}] overlaps segment[{j}].");
+            }
+        }
+
         for (var otherIndex = 0; otherIndex < allArrows.Count; otherIndex++)
         {
             if (otherIndex == index) continue;
