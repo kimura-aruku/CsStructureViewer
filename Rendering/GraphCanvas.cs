@@ -40,12 +40,11 @@ public class GraphCanvas : FrameworkElement
     private readonly Canvas _inner;
     private readonly TranslateTransform _contentTranslate = new(0, 0);
     private readonly ScaleTransform _scale = new(1, 1);
-    private readonly TranslateTransform _translate = new(0, 0);
     private bool _isPanning;
     private Point _panStart;
-    private Vector _translateOrigin;
+    private Point _scrollOrigin;
     private string? _transparentClassKey;
-    private Size _contentSize = new(1, 1);
+    private Size _baseContentSize = new(1, 1);
     private Rect _centralBounds = Rect.Empty;
 
     public event EventHandler? InitialViewportRequested;
@@ -59,7 +58,6 @@ public class GraphCanvas : FrameworkElement
         var group = new TransformGroup();
         group.Children.Add(_contentTranslate);
         group.Children.Add(_scale);
-        group.Children.Add(_translate);
 
         _inner = new Canvas { RenderTransform = group };
         _outer = new Canvas { ClipToBounds = true, Background = Brushes.Transparent };
@@ -79,15 +77,17 @@ public class GraphCanvas : FrameworkElement
 
     protected override Size MeasureOverride(Size availableSize)
     {
-        _outer.Measure(_contentSize);
-        return _contentSize;
+        var contentSize = ScaledContentSize;
+        _outer.Measure(contentSize);
+        return contentSize;
     }
 
     protected override Size ArrangeOverride(Size finalSize)
     {
+        var contentSize = ScaledContentSize;
         var arrangeSize = new Size(
-            Math.Max(finalSize.Width, _contentSize.Width),
-            Math.Max(finalSize.Height, _contentSize.Height));
+            Math.Max(finalSize.Width, contentSize.Width),
+            Math.Max(finalSize.Height, contentSize.Height));
         _outer.Arrange(new Rect(arrangeSize));
         return arrangeSize;
     }
@@ -97,16 +97,22 @@ public class GraphCanvas : FrameworkElement
         if (_centralBounds.IsEmpty)
             return new Point(0, 0);
 
-        var x = Math.Max(0, _centralBounds.X - InitialViewportPadding);
-        var y = Math.Max(0, _centralBounds.Y - InitialViewportPadding);
+        var contentSize = ScaledContentSize;
+        var x = Math.Max(0, _centralBounds.X * _scale.ScaleX - InitialViewportPadding);
+        var y = Math.Max(0, _centralBounds.Y * _scale.ScaleY - InitialViewportPadding);
 
         if (!double.IsNaN(viewportSize.Width) && viewportSize.Width > 0)
-            x = Math.Min(x, Math.Max(0, _contentSize.Width - viewportSize.Width));
+            x = Math.Min(x, Math.Max(0, contentSize.Width - viewportSize.Width));
         if (!double.IsNaN(viewportSize.Height) && viewportSize.Height > 0)
-            y = Math.Min(y, Math.Max(0, _contentSize.Height - viewportSize.Height));
+            y = Math.Min(y, Math.Max(0, contentSize.Height - viewportSize.Height));
 
         return new Point(x, y);
     }
+
+    private Size ScaledContentSize =>
+        new(
+            Math.Max(1, _baseContentSize.Width * _scale.ScaleX),
+            Math.Max(1, _baseContentSize.Height * _scale.ScaleY));
 
     // ── Render ───────────────────────────────────────────────────────
 
@@ -166,15 +172,13 @@ public class GraphCanvas : FrameworkElement
     {
         _scale.ScaleX = 1.0;
         _scale.ScaleY = 1.0;
-        _translate.X = 0.0;
-        _translate.Y = 0.0;
     }
 
     private void UpdateLayoutMetrics(LayoutResult? result)
     {
         if (result == null)
         {
-            _contentSize = new Size(1, 1);
+            _baseContentSize = new Size(1, 1);
             _centralBounds = Rect.Empty;
             _contentTranslate.X = 0.0;
             _contentTranslate.Y = 0.0;
@@ -209,7 +213,7 @@ public class GraphCanvas : FrameworkElement
 
         if (contentBounds.IsEmpty)
         {
-            _contentSize = new Size(1, 1);
+            _baseContentSize = new Size(1, 1);
             _centralBounds = Rect.Empty;
             return;
         }
@@ -217,7 +221,7 @@ public class GraphCanvas : FrameworkElement
         _contentTranslate.X = ContentMargin - contentBounds.Left;
         _contentTranslate.Y = ContentMargin - contentBounds.Top;
 
-        _contentSize = new Size(
+        _baseContentSize = new Size(
             Math.Max(1, contentBounds.Width + ContentMargin * 2),
             Math.Max(1, contentBounds.Height + ContentMargin * 2));
         _centralBounds = centralBounds.IsEmpty
@@ -462,38 +466,75 @@ public class GraphCanvas : FrameworkElement
 
     private void OnMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        var factor = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
-        var mouse = e.GetPosition(_outer);
-        var newScale = Math.Clamp(_scale.ScaleX * factor, 0.05, 20.0);
-        factor = newScale / _scale.ScaleX;
+        var scrollViewer = FindScrollViewer();
+        if (scrollViewer == null)
+            return;
 
-        _translate.X = mouse.X * (1 - factor) + _translate.X * factor;
-        _translate.Y = mouse.Y * (1 - factor) + _translate.Y * factor;
+        var factor = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
+        var mouse = e.GetPosition(scrollViewer);
+        var oldScale = _scale.ScaleX;
+        var newScale = Math.Clamp(_scale.ScaleX * factor, 0.05, 20.0);
+        var contentX = (scrollViewer.HorizontalOffset + mouse.X) / oldScale;
+        var contentY = (scrollViewer.VerticalOffset + mouse.Y) / oldScale;
+
         _scale.ScaleX = newScale;
         _scale.ScaleY = newScale;
+        InvalidateMeasure();
+
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            scrollViewer.ScrollToHorizontalOffset(contentX * newScale - mouse.X);
+            scrollViewer.ScrollToVerticalOffset(contentY * newScale - mouse.Y);
+        }));
+        e.Handled = true;
     }
 
     // ── Pan ──────────────────────────────────────────────────────────
 
     private void OnMouseDown(object sender, MouseButtonEventArgs e)
     {
+        var scrollViewer = FindScrollViewer();
+        if (scrollViewer == null)
+            return;
+
         _isPanning = true;
-        _panStart = e.GetPosition(_outer);
-        _translateOrigin = new Vector(_translate.X, _translate.Y);
+        _panStart = e.GetPosition(scrollViewer);
+        _scrollOrigin = new Point(scrollViewer.HorizontalOffset, scrollViewer.VerticalOffset);
         _outer.CaptureMouse();
+        e.Handled = true;
     }
 
     private void OnMouseMove(object sender, MouseEventArgs e)
     {
         if (!_isPanning) return;
-        var pos = e.GetPosition(_outer);
-        _translate.X = _translateOrigin.X + (pos.X - _panStart.X);
-        _translate.Y = _translateOrigin.Y + (pos.Y - _panStart.Y);
+        var scrollViewer = FindScrollViewer();
+        if (scrollViewer == null)
+            return;
+
+        var pos = e.GetPosition(scrollViewer);
+        scrollViewer.ScrollToHorizontalOffset(_scrollOrigin.X - (pos.X - _panStart.X));
+        scrollViewer.ScrollToVerticalOffset(_scrollOrigin.Y - (pos.Y - _panStart.Y));
+        e.Handled = true;
     }
 
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
     {
         _isPanning = false;
         _outer.ReleaseMouseCapture();
+        e.Handled = true;
+    }
+
+    private ScrollViewer? FindScrollViewer()
+    {
+        DependencyObject? current = this;
+        while (current != null)
+        {
+            if (current is ScrollViewer scrollViewer)
+                return scrollViewer;
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
     }
 }
