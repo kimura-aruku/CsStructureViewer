@@ -6,10 +6,10 @@ namespace CsStructureViewer.Layout;
 internal enum Side { Top }
 
 internal sealed record LayoutRow(
-    string Key,
     NamespaceNode? Namespace,
-    ClassNode? Class,
+    IReadOnlyList<ClassNode> Classes,
     bool IsFolder,
+    string? FolderKey,
     double Height);
 
 internal sealed record LaneRoutePlan(
@@ -41,6 +41,7 @@ public class LayoutEngine
     private const double TopConnectionLength = 10.0;
     private const double SideLaneGap = 26.0;
     private const double CentralMinWidth = 260.0;
+    private const double CentralMaxWidth = 760.0;
     private const double FolderMinWidth = 140.0;
     private const double FolderHeight = 54.0;
 
@@ -58,9 +59,7 @@ public class LayoutEngine
             CalcSize(node, sizes);
 
         var rows = BuildRows(graph, visibleFolderNamespaces, sizes);
-        var rowByKey = rows
-            .Select((row, index) => (row.Key, index))
-            .ToDictionary(x => x.Key, x => x.index, StringComparer.Ordinal);
+        var rowByKey = BuildRowByKey(rows);
         var plans = BuildLaneRoutePlans(graph.Edges, classNamespaces, visibleFolderNamespaces, rowByKey);
         var rowLaneCounts = CountRowLanes(rows.Count, plans);
         var sideLaneCount = plans.Count(plan => plan.SideLane >= 0);
@@ -121,18 +120,66 @@ public class LayoutEngine
         {
             if (ns.IsInternal)
             {
-                rows.Add(new LayoutRow(NamespaceKey(ns), ns, null, IsFolder: true, FolderHeight));
+                rows.Add(new LayoutRow(ns, [], IsFolder: true, NamespaceKey(ns), FolderHeight));
                 continue;
             }
 
-            foreach (var cls in ns.Classes)
-                rows.Add(new LayoutRow(ClassKey(cls), ns, cls, IsFolder: false, sizes[cls].Height));
+            AddClassRows(rows, ns, ns.Classes, sizes);
         }
 
-        foreach (var cls in graph.GlobalClasses)
-            rows.Add(new LayoutRow(ClassKey(cls), null, cls, IsFolder: false, sizes[cls].Height));
+        AddClassRows(rows, null, graph.GlobalClasses, sizes);
 
         return rows;
+    }
+
+    private static void AddClassRows(
+        List<LayoutRow> rows,
+        NamespaceNode? ns,
+        IReadOnlyList<ClassNode> classes,
+        Dictionary<ClassNode, Size> sizes)
+    {
+        var current = new List<ClassNode>();
+        var currentWidth = 0.0;
+        var currentHeight = 0.0;
+
+        foreach (var cls in classes)
+        {
+            var size = sizes[cls];
+            var nextWidth = current.Count == 0
+                ? size.Width
+                : currentWidth + ClassGap + size.Width;
+
+            if (current.Count > 0 && nextWidth > CentralMaxWidth - NsPadding * 2)
+            {
+                rows.Add(new LayoutRow(ns, current.ToList(), IsFolder: false, FolderKey: null, currentHeight));
+                current.Clear();
+                currentWidth = 0;
+                currentHeight = 0;
+                nextWidth = size.Width;
+            }
+
+            current.Add(cls);
+            currentWidth = nextWidth;
+            currentHeight = Math.Max(currentHeight, size.Height);
+        }
+
+        if (current.Count > 0)
+            rows.Add(new LayoutRow(ns, current.ToList(), IsFolder: false, FolderKey: null, currentHeight));
+    }
+
+    private static Dictionary<string, int> BuildRowByKey(List<LayoutRow> rows)
+    {
+        var map = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            if (row.FolderKey != null)
+                map[row.FolderKey] = i;
+
+            foreach (var cls in row.Classes)
+                map[ClassKey(cls)] = i;
+        }
+        return map;
     }
 
     private static List<LaneRoutePlan> BuildLaneRoutePlans(
@@ -219,8 +266,10 @@ public class LayoutEngine
     {
         var width = CentralMinWidth;
 
-        foreach (var cls in EnumerateAllTopLevel(graph))
-            width = Math.Max(width, sizes[cls].Width + NsPadding * 2);
+        foreach (var ns in graph.Namespaces.Where(ns => !ns.IsInternal || visibleFolderNamespaces.Contains(ns)))
+            width = Math.Max(width, CalculateNamespaceContentWidth(ns, sizes));
+
+        width = Math.Max(width, CalculateClassRowWidth(graph.GlobalClasses, sizes));
 
         foreach (var ns in graph.Namespaces.Where(ns => !ns.IsInternal || visibleFolderNamespaces.Contains(ns)))
         {
@@ -229,6 +278,27 @@ public class LayoutEngine
         }
 
         return width;
+    }
+
+    private static double CalculateNamespaceContentWidth(NamespaceNode ns, Dictionary<ClassNode, Size> sizes)
+    {
+        if (ns.IsInternal)
+            return Math.Max(ns.Name.Length * CharWidth + NsPadding * 2, FolderMinWidth);
+
+        return Math.Max(ns.Name.Length * CharWidth + NsPadding * 2, CalculateClassRowWidth(ns.Classes, sizes));
+    }
+
+    private static double CalculateClassRowWidth(IReadOnlyList<ClassNode> classes, Dictionary<ClassNode, Size> sizes)
+    {
+        if (classes.Count == 0)
+            return CentralMinWidth;
+
+        var width = NsPadding * 2;
+        var rowWidth = 0.0;
+        foreach (var cls in classes)
+            rowWidth += sizes[cls].Width + (rowWidth > 0 ? ClassGap : 0);
+
+        return Math.Clamp(width + rowWidth, CentralMinWidth, CentralMaxWidth);
     }
 
     private static List<Rect> PlaceRows(
@@ -260,14 +330,20 @@ public class LayoutEngine
                 rect = new Rect(centralX, rectY, Math.Max(FolderMinWidth, centralWidth), FolderHeight);
                 result.NamespaceRects[row.Namespace] = rect;
             }
-            else if (row.Class != null)
+            else if (row.Classes.Count > 0)
             {
-                var size = sizes[row.Class];
                 var classX = centralX + NsPadding;
-                rect = new Rect(classX, rectY, size.Width, size.Height);
-                result.ClassRects[row.Class] = rect;
-                if (row.Namespace == null)
-                    result.GlobalClasses.Add(row.Class);
+                var maxHeight = row.Classes.Max(cls => sizes[cls].Height);
+                foreach (var cls in row.Classes)
+                {
+                    var size = sizes[cls];
+                    var classY = rectY + (maxHeight - size.Height) / 2;
+                    result.ClassRects[cls] = new Rect(classX, classY, size.Width, size.Height);
+                    classX += size.Width + ClassGap;
+                    if (row.Namespace == null)
+                        result.GlobalClasses.Add(cls);
+                }
+                rect = new Rect(centralX, rectY, centralWidth, maxHeight);
             }
             else
             {
