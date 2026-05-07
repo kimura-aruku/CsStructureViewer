@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using CsStructureViewer.Analysis;
+using CsStructureViewer.Diagnostics;
 using CsStructureViewer.Layout;
 using CsStructureViewer.Settings;
 using Microsoft.Win32;
@@ -32,6 +33,13 @@ public class MainViewModel : INotifyPropertyChanged
     {
         get => _layoutResult;
         private set => SetField(ref _layoutResult, value);
+    }
+
+    private string? _latestDiagnosticsPath;
+    public string? LatestDiagnosticsPath
+    {
+        get => _latestDiagnosticsPath;
+        private set => SetField(ref _latestDiagnosticsPath, value);
     }
 
     private bool _isAnalyzing;
@@ -85,7 +93,9 @@ public class MainViewModel : INotifyPropertyChanged
         {
             var graph = await _analyzer.AnalyzeAsync(
                 folderPath, Settings, cancellationToken: _cts.Token);
-            LayoutResult = _layoutEngine.Calculate(graph, CanvasWidth);
+            var layoutResult = _layoutEngine.Calculate(graph, CanvasWidth);
+            LatestDiagnosticsPath = LayoutDiagnosticsWriter.WriteLatest(layoutResult, folderPath);
+            LayoutResult = layoutResult;
         }
         catch (OperationCanceledException) { }
         finally

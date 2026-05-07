@@ -42,12 +42,32 @@ public class ArrowRoute
 {
     public IReadOnlyList<RouteSegment> Segments { get; }
     public DependencyKind Kind { get; }
+    public string SourceKey { get; }
+    public string TargetKey { get; }
+    public string SourceLabel { get; }
+    public string TargetLabel { get; }
+    public string SourceSide { get; }
+    public string TargetSide { get; }
 
-    public ArrowRoute(IReadOnlyList<RouteSegment> segments, DependencyKind kind)
+    public ArrowRoute(
+        IReadOnlyList<RouteSegment> segments,
+        DependencyKind kind,
+        string sourceKey = "",
+        string targetKey = "",
+        string sourceLabel = "",
+        string targetLabel = "",
+        string sourceSide = "",
+        string targetSide = "")
     {
         ValidateSegments(segments);
         Segments = segments;
         Kind = kind;
+        SourceKey = sourceKey;
+        TargetKey = targetKey;
+        SourceLabel = sourceLabel;
+        TargetLabel = targetLabel;
+        SourceSide = sourceSide;
+        TargetSide = targetSide;
     }
 
     private static void ValidateSegments(IReadOnlyList<RouteSegment> segs)

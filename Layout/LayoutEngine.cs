@@ -8,6 +8,8 @@ internal enum Side { Left, Right, Top, Bottom }
 internal record RouteRequest(
     string SourceKey,
     string TargetKey,
+    string SourceLabel,
+    string TargetLabel,
     Rect SourceRect,
     Rect TargetRect,
     DependencyKind Kind,
@@ -160,6 +162,8 @@ public class LayoutEngine
             requests.Add(new RouteRequest(
                 sourceKey,
                 targetKey,
+                sourceInternal ? sourceNs!.Name : edge.Source.FullyQualifiedName,
+                targetInternal ? targetNs!.Name : edge.Target.FullyQualifiedName,
                 sourceRect,
                 targetRect,
                 edge.Kind,
@@ -242,7 +246,15 @@ public class LayoutEngine
             }
 
             if (segs is { Count: > 0 })
-                result.Arrows.Add(new ArrowRoute(segs, request.Kind));
+                result.Arrows.Add(new ArrowRoute(
+                    segs,
+                    request.Kind,
+                    request.SourceKey,
+                    request.TargetKey,
+                    request.SourceLabel,
+                    request.TargetLabel,
+                    srcSide.ToString(),
+                    tgtSide.ToString()));
         }
     }
 
