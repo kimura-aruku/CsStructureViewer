@@ -417,11 +417,19 @@ public class LayoutEngine
                                     (srcSide == Side.Left  && (tgtPt.X > srcPt.X || entryPt.X > exitPt.X));
                 if (wouldReverse)
                 {
-                    var laneY = GetHorizontalReverseLaneY(srcPt, tgtPt, srcRect, tgtRect, laneOffset);
-                    pts.Add(exitPt);
-                    pts.Add(new Point(exitPt.X, laneY));
-                    pts.Add(new Point(entryPt.X, laneY));
-                    pts.Add(entryPt);
+                    if (IsAheadFromSource(srcPt, entryPt, srcSide))
+                    {
+                        pts.Add(new Point(entryPt.X, srcPt.Y));
+                        pts.Add(entryPt);
+                    }
+                    else
+                    {
+                        var laneY = GetHorizontalReverseLaneY(srcPt, tgtPt, srcRect, tgtRect, laneOffset);
+                        pts.Add(exitPt);
+                        pts.Add(new Point(exitPt.X, laneY));
+                        pts.Add(new Point(entryPt.X, laneY));
+                        pts.Add(entryPt);
+                    }
                 }
                 else
                 {
@@ -467,11 +475,19 @@ public class LayoutEngine
                                     (srcSide == Side.Top    && (tgtPt.Y > srcPt.Y || entryPt.Y > exitPt.Y));
                 if (wouldReverse)
                 {
-                    var laneX = GetVerticalReverseLaneX(srcPt, tgtPt, srcRect, tgtRect, laneOffset);
-                    pts.Add(exitPt);
-                    pts.Add(new Point(laneX, exitPt.Y));
-                    pts.Add(new Point(laneX, entryPt.Y));
-                    pts.Add(entryPt);
+                    if (IsAheadFromSource(srcPt, entryPt, srcSide))
+                    {
+                        pts.Add(new Point(srcPt.X, entryPt.Y));
+                        pts.Add(entryPt);
+                    }
+                    else
+                    {
+                        var laneX = GetVerticalReverseLaneX(srcPt, tgtPt, srcRect, tgtRect, laneOffset);
+                        pts.Add(exitPt);
+                        pts.Add(new Point(laneX, exitPt.Y));
+                        pts.Add(new Point(laneX, entryPt.Y));
+                        pts.Add(entryPt);
+                    }
                 }
                 else
                 {
@@ -551,6 +567,15 @@ public class LayoutEngine
     private static bool HasTerminalClearance(Point from, Point to) =>
         Math.Abs(from.X - to.X) >= ArrowTerminalClearance ||
         Math.Abs(from.Y - to.Y) >= ArrowTerminalClearance;
+
+    private static bool IsAheadFromSource(Point srcPt, Point pt, Side srcSide) => srcSide switch
+    {
+        Side.Right => pt.X > srcPt.X + 0.1,
+        Side.Left => pt.X < srcPt.X - 0.1,
+        Side.Bottom => pt.Y > srcPt.Y + 0.1,
+        Side.Top => pt.Y < srcPt.Y - 0.1,
+        _ => false
+    };
 
     private static double GetHorizontalReverseLaneY(
         Point srcPt,
