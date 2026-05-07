@@ -43,6 +43,14 @@ public static class LayoutDiagnosticsWriter
                 kind = arrow.Kind.ToString(),
                 sourceSide = arrow.SourceSide,
                 targetSide = arrow.TargetSide,
+                lane = new
+                {
+                    sourceRow = arrow.SourceRow,
+                    targetRow = arrow.TargetRow,
+                    sourceHorizontalLane = arrow.SourceHorizontalLane,
+                    targetHorizontalLane = arrow.TargetHorizontalLane,
+                    sideLane = arrow.SideLane
+                },
                 expectedFirstDirection = ExpectedSourceDirection(arrow.SourceSide),
                 actualFirstDirection = arrow.Segments.FirstOrDefault()?.Direction.ToString(),
                 expectedLastDirection = ExpectedTargetDirection(arrow.TargetSide),
@@ -178,19 +186,13 @@ public static class LayoutDiagnosticsWriter
 
     private static string? ExpectedSourceDirection(string side) => side switch
     {
-        "Left" => Direction.Left.ToString(),
-        "Right" => Direction.Right.ToString(),
         "Top" => Direction.Up.ToString(),
-        "Bottom" => Direction.Down.ToString(),
         _ => null
     };
 
     private static string? ExpectedTargetDirection(string side) => side switch
     {
-        "Left" => Direction.Right.ToString(),
-        "Right" => Direction.Left.ToString(),
         "Top" => Direction.Down.ToString(),
-        "Bottom" => Direction.Up.ToString(),
         _ => null
     };
 

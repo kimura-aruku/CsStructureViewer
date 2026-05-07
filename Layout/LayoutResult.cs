@@ -52,6 +52,11 @@ public class ArrowRoute
     public string TargetSide { get; }
     public Rect SourceRect { get; }
     public Rect TargetRect { get; }
+    public int SourceRow { get; init; } = -1;
+    public int TargetRow { get; init; } = -1;
+    public int SourceHorizontalLane { get; init; } = -1;
+    public int TargetHorizontalLane { get; init; } = -1;
+    public int SideLane { get; init; } = -1;
 
     public ArrowRoute(
         IReadOnlyList<RouteSegment> segments,
