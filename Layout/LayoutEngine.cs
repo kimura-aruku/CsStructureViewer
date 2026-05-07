@@ -34,7 +34,7 @@ public class LayoutEngine
     private const double MaxClassWidth = 200.0;
     private const double MinClassWidth = 60.0;
     private const double ClassGap = 18.0;
-    private const double NamespaceGapMultiplier = 3.0;
+    private const double NamespaceGapMultiplier = 1.5;
     private const double NsPadding = 16.0;
     private const double NsLabelHeight = 22.0;
     private const double NsGap = 24.0;
