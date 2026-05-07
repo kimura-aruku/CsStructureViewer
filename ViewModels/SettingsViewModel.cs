@@ -12,8 +12,6 @@ public class SettingsViewModel
 
     public ObservableCollection<ExcludePatternItem> Patterns { get; } = new();
     public ObservableCollection<ExcludePatternItem> InternalPatterns { get; } = new();
-    public RelayCommand AddPatternCommand { get; }
-    public RelayCommand AddInternalPatternCommand { get; }
     public bool DebugClassTransparencyEnabled { get; set; }
 
     public SettingsViewModel(AppSettings settings, SettingsManager settingsManager)
@@ -29,15 +27,6 @@ public class SettingsViewModel
 
         DebugClassTransparencyEnabled = settings.DebugClassTransparencyEnabled;
 
-        AddPatternCommand = new RelayCommand(() =>
-        {
-            Patterns.Add(CreateItem(CreateDefaultRule(), Patterns));
-        });
-
-        AddInternalPatternCommand = new RelayCommand(() =>
-        {
-            InternalPatterns.Add(CreateItem(CreateDefaultRule(), InternalPatterns));
-        });
     }
 
     private ExcludePatternItem CreateItem(ExcludePatternRule rule, ObservableCollection<ExcludePatternItem> list)
