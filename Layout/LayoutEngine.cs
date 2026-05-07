@@ -291,7 +291,7 @@ public class LayoutEngine
         var segs = new List<RouteSegment> { firstSeg };
         segs.AddRange(middleSegs);
         segs.Add(lastSeg);
-        var route = SimplifyMiddleRoute(segs, obstacles);
+        var route = NormalizeSameDirectionSegments(SimplifyMiddleRoute(segs, obstacles));
         return IntersectsEndpointRects(route, srcRect, tgtRect) ? [] : route;
     }
 
@@ -946,7 +946,7 @@ public class LayoutEngine
 
     private static List<RouteSegment> SimplifyMiddleRoute(List<RouteSegment> route, List<Rect> obstacles)
     {
-        if (route.Count <= 2) return route;
+        if (route.Count <= 2) return NormalizeSameDirectionSegments(route);
 
         var firstSeg = route[0];
         var lastSeg = route[^1];
