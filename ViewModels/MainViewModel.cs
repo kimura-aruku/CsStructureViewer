@@ -94,6 +94,7 @@ public class MainViewModel : INotifyPropertyChanged
             var graph = await _analyzer.AnalyzeAsync(
                 folderPath, Settings, cancellationToken: _cts.Token);
             var layoutResult = _layoutEngine.Calculate(graph, CanvasWidth);
+            layoutResult.ProjectPath = folderPath;
             LatestDiagnosticsPath = LayoutDiagnosticsWriter.WriteLatest(layoutResult, folderPath);
             LayoutResult = layoutResult;
         }

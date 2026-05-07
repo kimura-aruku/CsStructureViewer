@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using CsStructureViewer.Helpers;
+using CsStructureViewer.Diagnostics;
 using CsStructureViewer.Layout;
 using CsStructureViewer.Models;
 using WpfLineSegment = System.Windows.Media.LineSegment;
@@ -110,6 +111,9 @@ public class GraphCanvas : FrameworkElement
         // Layer 4: class rects (global classes)
         foreach (var cls in result.GlobalClasses)
             DrawClassRect(cls, result.ClassRects, GlobalClassColor);
+
+        if (!string.IsNullOrWhiteSpace(result.ProjectPath))
+            LayoutDiagnosticsWriter.WriteLatest(result, result.ProjectPath);
     }
 
     // ── Folder rect drawing ──────────────────────────────────────────
@@ -253,6 +257,12 @@ public class GraphCanvas : FrameworkElement
                         end.Y - arrowLen * Math.Sin(angle))
             : end;
 
+        arrow.RenderedShaftPoints.Clear();
+        arrow.RenderedShaftPoints.Add(arrow.Start);
+        for (int i = 0; i < arrow.Segments.Count - 1; i++)
+            arrow.RenderedShaftPoints.Add(arrow.Segments[i].End);
+        arrow.RenderedShaftPoints.Add(lineEnd);
+
         // Shaft: Start → intermediate ends → lineEnd
         var fig = new PathFigure { StartPoint = arrow.Start };
         for (int i = 0; i < arrow.Segments.Count - 1; i++)
@@ -278,6 +288,11 @@ public class GraphCanvas : FrameworkElement
                               end.Y - arrowLen * Math.Sin(angle - halfAngle));
         var right = new Point(end.X - arrowLen * Math.Cos(angle + halfAngle),
                               end.Y - arrowLen * Math.Sin(angle + halfAngle));
+
+        arrow.RenderedHeadPoints.Clear();
+        arrow.RenderedHeadPoints.Add(left);
+        arrow.RenderedHeadPoints.Add(end);
+        arrow.RenderedHeadPoints.Add(right);
 
         var headGeom = new PathGeometry();
         if (isTriangle)

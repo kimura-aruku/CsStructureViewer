@@ -41,6 +41,8 @@ public class RouteSegment
 public class ArrowRoute
 {
     public IReadOnlyList<RouteSegment> Segments { get; }
+    public List<Point> RenderedShaftPoints { get; } = new();
+    public List<Point> RenderedHeadPoints { get; } = new();
     public DependencyKind Kind { get; }
     public string SourceKey { get; }
     public string TargetKey { get; }
@@ -104,6 +106,7 @@ public class ArrowRoute
 
 public class LayoutResult
 {
+    public string ProjectPath { get; set; } = string.Empty;
     public List<NamespaceNode> NamespaceOrder { get; } = new();
     public List<ClassNode> GlobalClasses { get; } = new();
     public Dictionary<ClassNode, Rect> ClassRects { get; } = new();
