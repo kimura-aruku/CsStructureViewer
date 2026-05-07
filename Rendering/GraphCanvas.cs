@@ -126,6 +126,7 @@ public class GraphCanvas : FrameworkElement
         if (result == null) return;
 
         var total = result.NamespaceOrder.Count;
+        var sourceColors = BuildSourceColors(result);
 
         // Layer 1: folder rects (below everything)
         foreach (var ns in result.FolderNamespaces)
@@ -145,7 +146,7 @@ public class GraphCanvas : FrameworkElement
 
         // Layer 3: arrows
         foreach (var arrow in result.Arrows)
-            DrawArrow(arrow);
+            DrawArrow(arrow, sourceColors.GetValueOrDefault(arrow.SourceKey, Colors.DimGray));
 
         // Layer 4: class rects (namespace classes, skip folder namespaces)
         for (var i = 0; i < total; i++)
@@ -166,6 +167,31 @@ public class GraphCanvas : FrameworkElement
 
         if (resetViewport)
             InitialViewportRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static Dictionary<string, Color> BuildSourceColors(LayoutResult result)
+    {
+        var colors = new Dictionary<string, Color>(StringComparer.Ordinal);
+        var total = result.NamespaceOrder.Count;
+
+        for (var i = 0; i < total; i++)
+        {
+            var ns = result.NamespaceOrder[i];
+            if (result.FolderNamespaces.Contains(ns))
+            {
+                colors[$"namespace:{ns.Name}"] = FolderBorderColor;
+                continue;
+            }
+
+            var (_, classColor) = ColorPalette.GetColors(i, total);
+            foreach (var cls in ns.Classes)
+                colors[$"class:{cls.FullyQualifiedName}"] = classColor;
+        }
+
+        foreach (var cls in result.GlobalClasses)
+            colors[$"class:{cls.FullyQualifiedName}"] = GlobalClassColor;
+
+        return colors;
     }
 
     private void ResetViewTransform()
@@ -364,9 +390,10 @@ public class GraphCanvas : FrameworkElement
 
     // ── Arrow drawing ────────────────────────────────────────────────
 
-    private void DrawArrow(ArrowRoute arrow)
+    private void DrawArrow(ArrowRoute arrow, Color color)
     {
         if (arrow.Segments.Count == 0) return;
+        var brush = new SolidColorBrush(DarkenColor(color, 0.2));
 
         var lastSeg = arrow.Segments[^1];
         var end = arrow.End;
@@ -406,7 +433,7 @@ public class GraphCanvas : FrameworkElement
         var shaft = new Path
         {
             Data = geom,
-            Stroke = Brushes.DimGray,
+            Stroke = brush,
             StrokeThickness = 1.5
         };
         if (arrow.Kind == DependencyKind.Implementation)
@@ -446,7 +473,7 @@ public class GraphCanvas : FrameworkElement
         var head = new Path
         {
             Data = headGeom,
-            Stroke = Brushes.DimGray,
+            Stroke = brush,
             StrokeThickness = 1.5,
             Fill = isTriangle ? Brushes.White : Brushes.Transparent
         };
