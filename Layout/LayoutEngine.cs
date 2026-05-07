@@ -39,6 +39,7 @@ public class LayoutEngine
     private const double NsGap = 24.0;
     private const double LaneGap = 12.0;
     private const double TopConnectionLength = 10.0;
+    private const double BottomLaneClearance = LaneGap;
     private const double SideLaneGap = 26.0;
     private const double CentralMinWidth = 260.0;
     private const double CentralMaxWidth = 760.0;
@@ -321,7 +322,7 @@ public class LayoutEngine
             if (row.Namespace != null && !namespaceStartY.ContainsKey(row.Namespace))
                 namespaceStartY[row.Namespace] = y;
 
-            var laneHeight = rowLaneCounts[rowIndex] * LaneGap + TopConnectionLength;
+            var laneHeight = CalculateLaneHeight(rowLaneCounts[rowIndex]);
             var rectY = y + laneHeight;
             Rect rect;
 
@@ -493,8 +494,13 @@ public class LayoutEngine
         return RemoveDuplicatePoints(points);
     }
 
+    private static double CalculateLaneHeight(int laneCount) =>
+        laneCount == 0
+            ? TopConnectionLength
+            : laneCount * LaneGap + TopConnectionLength + BottomLaneClearance;
+
     private static double HorizontalLaneY(Rect rowRect, int lane) =>
-        rowRect.Top - TopConnectionLength - lane * LaneGap;
+        rowRect.Top - TopConnectionLength - BottomLaneClearance - lane * LaneGap;
 
     private static double SideLaneX(int sideLane, double centralX, double centralWidth)
     {
