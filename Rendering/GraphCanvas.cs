@@ -38,6 +38,7 @@ public class GraphCanvas : FrameworkElement
 
     private readonly Canvas _outer;
     private readonly Canvas _inner;
+    private readonly TranslateTransform _contentTranslate = new(0, 0);
     private readonly ScaleTransform _scale = new(1, 1);
     private readonly TranslateTransform _translate = new(0, 0);
     private bool _isPanning;
@@ -56,6 +57,7 @@ public class GraphCanvas : FrameworkElement
     public GraphCanvas()
     {
         var group = new TransformGroup();
+        group.Children.Add(_contentTranslate);
         group.Children.Add(_scale);
         group.Children.Add(_translate);
 
@@ -174,6 +176,8 @@ public class GraphCanvas : FrameworkElement
         {
             _contentSize = new Size(1, 1);
             _centralBounds = Rect.Empty;
+            _contentTranslate.X = 0.0;
+            _contentTranslate.Y = 0.0;
             return;
         }
 
@@ -210,12 +214,23 @@ public class GraphCanvas : FrameworkElement
             return;
         }
 
-        contentBounds.Inflate(ContentMargin, ContentMargin);
+        _contentTranslate.X = ContentMargin - contentBounds.Left;
+        _contentTranslate.Y = ContentMargin - contentBounds.Top;
+
         _contentSize = new Size(
-            Math.Max(1, contentBounds.Right),
-            Math.Max(1, contentBounds.Bottom));
-        _centralBounds = centralBounds.IsEmpty ? contentBounds : centralBounds;
+            Math.Max(1, contentBounds.Width + ContentMargin * 2),
+            Math.Max(1, contentBounds.Height + ContentMargin * 2));
+        _centralBounds = centralBounds.IsEmpty
+            ? new Rect(ContentMargin, ContentMargin, contentBounds.Width, contentBounds.Height)
+            : NormalizeRect(centralBounds);
     }
+
+    private Rect NormalizeRect(Rect rect) =>
+        new(
+            rect.X + _contentTranslate.X,
+            rect.Y + _contentTranslate.Y,
+            rect.Width,
+            rect.Height);
 
     // ── Folder rect drawing ──────────────────────────────────────────
 
