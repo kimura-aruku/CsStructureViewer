@@ -47,6 +47,8 @@ public static class LayoutDiagnosticsWriter
                 actualFirstDirection = arrow.Segments.FirstOrDefault()?.Direction.ToString(),
                 expectedLastDirection = ExpectedTargetDirection(arrow.TargetSide),
                 actualLastDirection = arrow.Segments.LastOrDefault()?.Direction.ToString(),
+                sourceRect = RectDto(arrow.SourceRect),
+                targetRect = RectDto(arrow.TargetRect),
                 start = PointDto(arrow.Start),
                 end = PointDto(arrow.End),
                 segments,
@@ -96,6 +98,8 @@ public static class LayoutDiagnosticsWriter
         if (last != null && expectedLast != null && last.Direction.ToString() != expectedLast)
             issues.Add($"Target side mismatch: expected {expectedLast}, actual {last.Direction}.");
 
+        AddEndpointRectIssues(arrow, issues);
+
         for (var i = 1; i < arrow.Segments.Count; i++)
         {
             if (!PointsClose(arrow.Segments[i - 1].End, arrow.Segments[i].Start))
@@ -125,6 +129,25 @@ public static class LayoutDiagnosticsWriter
         }
 
         return issues.Distinct().ToList();
+    }
+
+    private static void AddEndpointRectIssues(ArrowRoute arrow, List<string> issues)
+    {
+        if (arrow.Segments.Count == 0 || arrow.SourceRect.IsEmpty || arrow.TargetRect.IsEmpty)
+            return;
+
+        for (var i = 0; i < arrow.Segments.Count; i++)
+        {
+            var isFirst = i == 0;
+            var isLast = i == arrow.Segments.Count - 1;
+            var segment = arrow.Segments[i];
+
+            if (!isFirst && SegmentIntersectsRect(segment, arrow.SourceRect))
+                issues.Add($"Re-enters source rect: segment[{i}].");
+
+            if (!isLast && SegmentIntersectsRect(segment, arrow.TargetRect))
+                issues.Add($"Passes through target rect before final entry: segment[{i}].");
+        }
     }
 
     private static List<string> GetObstacleIssues(ArrowRoute arrow, LayoutResult result, int index)

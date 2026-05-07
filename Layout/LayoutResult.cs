@@ -50,6 +50,8 @@ public class ArrowRoute
     public string TargetLabel { get; }
     public string SourceSide { get; }
     public string TargetSide { get; }
+    public Rect SourceRect { get; }
+    public Rect TargetRect { get; }
 
     public ArrowRoute(
         IReadOnlyList<RouteSegment> segments,
@@ -59,7 +61,9 @@ public class ArrowRoute
         string sourceLabel = "",
         string targetLabel = "",
         string sourceSide = "",
-        string targetSide = "")
+        string targetSide = "",
+        Rect sourceRect = default,
+        Rect targetRect = default)
     {
         ValidateSegments(segments);
         Segments = segments;
@@ -70,6 +74,8 @@ public class ArrowRoute
         TargetLabel = targetLabel;
         SourceSide = sourceSide;
         TargetSide = targetSide;
+        SourceRect = sourceRect;
+        TargetRect = targetRect;
     }
 
     private static void ValidateSegments(IReadOnlyList<RouteSegment> segs)

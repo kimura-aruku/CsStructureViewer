@@ -254,7 +254,9 @@ public class LayoutEngine
                     request.SourceLabel,
                     request.TargetLabel,
                     srcSide.ToString(),
-                    tgtSide.ToString()));
+                    tgtSide.ToString(),
+                    srcRect,
+                    tgtRect));
         }
     }
 
@@ -289,7 +291,8 @@ public class LayoutEngine
         var segs = new List<RouteSegment> { firstSeg };
         segs.AddRange(middleSegs);
         segs.Add(lastSeg);
-        return SimplifyMiddleRoute(segs, obstacles);
+        var route = SimplifyMiddleRoute(segs, obstacles);
+        return IntersectsEndpointRects(route, srcRect, tgtRect) ? [] : route;
     }
 
     private static (Side srcSide, Side tgtSide)[] SelectSidePairs(
@@ -872,6 +875,26 @@ public class LayoutEngine
 
     private static bool RouteIntersectsObstacles(List<RouteSegment> route, List<Rect> obstacles) =>
         route.Any(seg => obstacles.Any(rect => SegmentIntersectsRect(seg, rect)));
+
+    private static bool IntersectsEndpointRects(List<RouteSegment> route, Rect srcRect, Rect tgtRect)
+    {
+        if (route.Count == 0) return false;
+
+        for (var i = 0; i < route.Count; i++)
+        {
+            var isFirst = i == 0;
+            var isLast = i == route.Count - 1;
+            var segment = route[i];
+
+            if (!isFirst && SegmentIntersectsRect(segment, srcRect))
+                return true;
+
+            if (!isLast && SegmentIntersectsRect(segment, tgtRect))
+                return true;
+        }
+
+        return false;
+    }
 
     private static double SidePairPenalty(
         (Side srcSide, Side tgtSide) pair,
