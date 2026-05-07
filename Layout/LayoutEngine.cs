@@ -220,7 +220,7 @@ public class LayoutEngine
 
             var sameOrNearRow = Math.Abs(sourceRow - targetRow) <= 1;
             var sourceLane = AllocateRowLane(nextRowLane, sourceRow);
-            var targetLane = sameOrNearRow
+            var targetLane = sourceRow == targetRow
                 ? sourceLane
                 : AllocateRowLane(nextRowLane, targetRow);
             var sideLane = sameOrNearRow ? -1 : nextSideLane++;
