@@ -5,6 +5,8 @@ namespace CsStructureViewer.Layout;
 
 public enum Direction { Up, Right, Down, Left }
 
+public enum GraphDisplayMode { Class, Namespace }
+
 /// <summary>
 /// 始点座標・方向・長さで一本の直線を完全に定義する。
 /// </summary>
@@ -118,6 +120,7 @@ public class ArrowRoute
 public class LayoutResult
 {
     public string ProjectPath { get; set; } = string.Empty;
+    public GraphDisplayMode DisplayMode { get; set; } = GraphDisplayMode.Class;
     public List<NamespaceNode> NamespaceOrder { get; } = new();
     public List<ClassNode> GlobalClasses { get; } = new();
     public Dictionary<ClassNode, Rect> ClassRects { get; } = new();

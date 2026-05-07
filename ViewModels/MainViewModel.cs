@@ -53,6 +53,40 @@ public class MainViewModel : INotifyPropertyChanged
     public bool ShowGraph => LayoutResult is not null;
     public bool ShowRefresh => LastFolderPath is not null;
 
+    private GraphDisplayMode _displayMode = GraphDisplayMode.Class;
+    public GraphDisplayMode DisplayMode
+    {
+        get => _displayMode;
+        private set
+        {
+            if (SetField(ref _displayMode, value))
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsClassMode)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsNamespaceMode)));
+            }
+        }
+    }
+
+    public bool IsClassMode
+    {
+        get => DisplayMode == GraphDisplayMode.Class;
+        set
+        {
+            if (value)
+                ChangeDisplayMode(GraphDisplayMode.Class);
+        }
+    }
+
+    public bool IsNamespaceMode
+    {
+        get => DisplayMode == GraphDisplayMode.Namespace;
+        set
+        {
+            if (value)
+                ChangeDisplayMode(GraphDisplayMode.Namespace);
+        }
+    }
+
     public AppSettings Settings { get; }
     public bool DebugClassTransparencyEnabled => Settings.DebugClassTransparencyEnabled;
     public AsyncRelayCommand OpenProjectCommand { get; }
@@ -99,7 +133,7 @@ public class MainViewModel : INotifyPropertyChanged
         {
             var graph = await _analyzer.AnalyzeAsync(
                 folderPath, Settings, cancellationToken: _cts.Token);
-            var layoutResult = _layoutEngine.Calculate(graph, CanvasWidth);
+            var layoutResult = _layoutEngine.Calculate(graph, CanvasWidth, DisplayMode);
             layoutResult.ProjectPath = folderPath;
             LatestDiagnosticsPath = LayoutDiagnosticsWriter.WriteLatest(layoutResult, folderPath);
             LayoutResult = layoutResult;
@@ -115,11 +149,21 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private void ChangeDisplayMode(GraphDisplayMode mode)
+    {
+        if (DisplayMode == mode)
+            return;
+
+        DisplayMode = mode;
+        if (LastFolderPath is not null && !IsAnalyzing)
+            _ = RunAnalysisAsync(LastFolderPath);
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    private void SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
-        if (EqualityComparer<T>.Default.Equals(field, value)) return;
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         if (name == nameof(LayoutResult))
@@ -131,5 +175,6 @@ public class MainViewModel : INotifyPropertyChanged
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowWelcome)));
         }
+        return true;
     }
 }

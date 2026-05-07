@@ -151,6 +151,9 @@ public class GraphCanvas : FrameworkElement
         // Layer 4: class rects (namespace classes, skip folder namespaces)
         for (var i = 0; i < total; i++)
         {
+            if (result.DisplayMode == GraphDisplayMode.Namespace)
+                break;
+
             var ns = result.NamespaceOrder[i];
             if (result.FolderNamespaces.Contains(ns)) continue;
             var (_, classColor) = ColorPalette.GetColors(i, total);
@@ -159,8 +162,9 @@ public class GraphCanvas : FrameworkElement
         }
 
         // Layer 4: class rects (global classes)
-        foreach (var cls in result.GlobalClasses)
-            DrawClassRect(cls, result.ClassRects, GlobalClassColor);
+        if (result.DisplayMode == GraphDisplayMode.Class)
+            foreach (var cls in result.GlobalClasses)
+                DrawClassRect(cls, result.ClassRects, GlobalClassColor);
 
         if (!string.IsNullOrWhiteSpace(result.ProjectPath))
             LayoutDiagnosticsWriter.WriteLatest(result, result.ProjectPath);
@@ -183,7 +187,8 @@ public class GraphCanvas : FrameworkElement
                 continue;
             }
 
-            var (_, classColor) = ColorPalette.GetColors(i, total);
+            var (nsColor, classColor) = ColorPalette.GetColors(i, total);
+            colors[$"namespace:{ns.Name}"] = nsColor;
             foreach (var cls in ns.Classes)
                 colors[$"class:{cls.FullyQualifiedName}"] = classColor;
         }

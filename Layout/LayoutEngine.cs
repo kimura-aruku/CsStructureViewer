@@ -47,9 +47,12 @@ public class LayoutEngine
     private const double FolderMinWidth = 140.0;
     private const double FolderHeight = 54.0;
 
-    public LayoutResult Calculate(ProjectGraph graph, double canvasMaxWidth)
+    public LayoutResult Calculate(
+        ProjectGraph graph,
+        double canvasMaxWidth,
+        GraphDisplayMode displayMode = GraphDisplayMode.Class)
     {
-        var result = new LayoutResult();
+        var result = new LayoutResult { DisplayMode = displayMode };
         var sizes = new Dictionary<ClassNode, Size>();
         var classNamespaces = BuildClassNamespaceMap(graph);
         var visibleFolderNamespaces = GetVisibleFolderNamespaces(graph, classNamespaces);
@@ -60,12 +63,14 @@ public class LayoutEngine
         foreach (var node in EnumerateAllTopLevel(graph))
             CalcSize(node, sizes);
 
-        var rows = BuildRows(graph, visibleFolderNamespaces, sizes);
+        var rows = BuildRows(graph, visibleFolderNamespaces, sizes, displayMode);
         var rowByKey = BuildRowByKey(rows);
-        var plans = BuildLaneRoutePlans(graph.Edges, classNamespaces, visibleFolderNamespaces, rowByKey);
+        var plans = displayMode == GraphDisplayMode.Namespace
+            ? BuildNamespaceRoutePlans(graph.Edges, classNamespaces, visibleFolderNamespaces, rowByKey)
+            : BuildLaneRoutePlans(graph.Edges, classNamespaces, visibleFolderNamespaces, rowByKey);
         var rowLaneCounts = CountRowLanes(rows.Count, plans);
         var sideLaneCount = plans.Count(plan => plan.SideLane >= 0);
-        var centralWidth = CalculateCentralWidth(graph, visibleFolderNamespaces, sizes);
+        var centralWidth = CalculateCentralWidth(graph, visibleFolderNamespaces, sizes, displayMode);
         var leftSideLaneCount = (sideLaneCount + 1) / 2;
         var centralX = leftSideLaneCount * SideLaneGap + NsPadding * 2;
 
@@ -76,7 +81,8 @@ public class LayoutEngine
             sizes,
             result,
             centralX,
-            centralWidth);
+            centralWidth,
+            displayMode);
 
         var rectByKey = BuildRectByKey(result);
         RouteArrows(plans, rowRects, rectByKey, centralX, centralWidth, result);
@@ -115,11 +121,23 @@ public class LayoutEngine
     private static List<LayoutRow> BuildRows(
         ProjectGraph graph,
         HashSet<NamespaceNode> visibleFolderNamespaces,
-        Dictionary<ClassNode, Size> sizes)
+        Dictionary<ClassNode, Size> sizes,
+        GraphDisplayMode displayMode)
     {
         var rows = new List<LayoutRow>();
         foreach (var ns in graph.Namespaces.Where(ns => !ns.IsInternal || visibleFolderNamespaces.Contains(ns)))
         {
+            if (displayMode == GraphDisplayMode.Namespace)
+            {
+                rows.Add(new LayoutRow(
+                    ns,
+                    [],
+                    IsFolder: ns.IsInternal,
+                    NamespaceKey(ns),
+                    FolderHeight));
+                continue;
+            }
+
             if (ns.IsInternal)
             {
                 rows.Add(new LayoutRow(ns, [], IsFolder: true, NamespaceKey(ns), FolderHeight));
@@ -242,6 +260,61 @@ public class LayoutEngine
         return plans;
     }
 
+    private static List<LaneRoutePlan> BuildNamespaceRoutePlans(
+        List<DependencyEdge> edges,
+        Dictionary<ClassNode, NamespaceNode> classNamespaces,
+        HashSet<NamespaceNode> visibleFolderNamespaces,
+        Dictionary<string, int> rowByKey)
+    {
+        var plans = new List<LaneRoutePlan>();
+        var seen = new HashSet<(string sourceKey, string targetKey, DependencyKind kind)>();
+        var nextRowLane = new Dictionary<int, int>();
+        var nextSideLane = 0;
+
+        foreach (var edge in edges)
+        {
+            var sourceNs = classNamespaces.GetValueOrDefault(edge.Source);
+            var targetNs = classNamespaces.GetValueOrDefault(edge.Target);
+            if (sourceNs == null || targetNs == null || sourceNs == targetNs)
+                continue;
+
+            if (sourceNs.IsInternal && !visibleFolderNamespaces.Contains(sourceNs))
+                continue;
+
+            if (targetNs.IsInternal && !visibleFolderNamespaces.Contains(targetNs))
+                continue;
+
+            var sourceKey = NamespaceKey(sourceNs);
+            var targetKey = NamespaceKey(targetNs);
+            if (!seen.Add((sourceKey, targetKey, edge.Kind)))
+                continue;
+
+            if (!rowByKey.TryGetValue(sourceKey, out var sourceRow) ||
+                !rowByKey.TryGetValue(targetKey, out var targetRow))
+                continue;
+
+            var sourceLane = AllocateRowLane(nextRowLane, sourceRow);
+            var targetLane = sourceRow == targetRow
+                ? sourceLane
+                : AllocateRowLane(nextRowLane, targetRow);
+            var sideLane = sourceRow == targetRow ? -1 : nextSideLane++;
+
+            plans.Add(new LaneRoutePlan(
+                sourceKey,
+                targetKey,
+                sourceNs.Name,
+                targetNs.Name,
+                edge.Kind,
+                sourceRow,
+                targetRow,
+                sourceLane,
+                targetLane,
+                sideLane));
+        }
+
+        return plans;
+    }
+
     private static int AllocateRowLane(Dictionary<int, int> nextRowLane, int row)
     {
         var lane = nextRowLane.GetValueOrDefault(row);
@@ -263,9 +336,18 @@ public class LayoutEngine
     private static double CalculateCentralWidth(
         ProjectGraph graph,
         HashSet<NamespaceNode> visibleFolderNamespaces,
-        Dictionary<ClassNode, Size> sizes)
+        Dictionary<ClassNode, Size> sizes,
+        GraphDisplayMode displayMode)
     {
         var width = CentralMinWidth;
+
+        if (displayMode == GraphDisplayMode.Namespace)
+        {
+            foreach (var ns in graph.Namespaces.Where(ns => !ns.IsInternal || visibleFolderNamespaces.Contains(ns)))
+                width = Math.Max(width, Math.Max(ns.Name.Length * CharWidth + NsPadding * 2, FolderMinWidth));
+
+            return Math.Min(width, CentralMaxWidth);
+        }
 
         foreach (var ns in graph.Namespaces.Where(ns => !ns.IsInternal || visibleFolderNamespaces.Contains(ns)))
             width = Math.Max(width, CalculateNamespaceContentWidth(ns, sizes));
@@ -309,7 +391,8 @@ public class LayoutEngine
         Dictionary<ClassNode, Size> sizes,
         LayoutResult result,
         double centralX,
-        double centralWidth)
+        double centralWidth,
+        GraphDisplayMode displayMode)
     {
         var rowRects = new List<Rect>();
         var y = NsGap;
@@ -326,7 +409,12 @@ public class LayoutEngine
             var rectY = y + laneHeight;
             Rect rect;
 
-            if (row.IsFolder && row.Namespace != null)
+            if (displayMode == GraphDisplayMode.Namespace && row.Namespace != null)
+            {
+                rect = new Rect(centralX, rectY, Math.Max(FolderMinWidth, centralWidth), FolderHeight);
+                result.NamespaceRects[row.Namespace] = rect;
+            }
+            else if (row.IsFolder && row.Namespace != null)
             {
                 rect = new Rect(centralX, rectY, Math.Max(FolderMinWidth, centralWidth), FolderHeight);
                 result.NamespaceRects[row.Namespace] = rect;
@@ -357,6 +445,15 @@ public class LayoutEngine
                 namespaceEndY[row.Namespace] = rect.Bottom + NsPadding;
 
             y = rect.Bottom + CalculateNextRowGap(rows, rowIndex);
+        }
+
+        if (displayMode == GraphDisplayMode.Namespace)
+        {
+            foreach (var row in rows)
+                if (row.Namespace != null && result.NamespaceRects.ContainsKey(row.Namespace))
+                    result.NamespaceOrder.Add(row.Namespace);
+
+            return rowRects;
         }
 
         foreach (var ns in graph.Namespaces.Where(ns => !ns.IsInternal && namespaceStartY.ContainsKey(ns)))
