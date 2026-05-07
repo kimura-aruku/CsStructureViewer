@@ -26,7 +26,7 @@
         <ScrollViewer Grid.Row="2" MaxHeight="200"
                       VerticalScrollBarVisibility="Auto" Margin="0,0,0,20">
             <StackPanel>
-                <Grid Margin="0,0,0,3">
+                <Grid Margin="8,0,12,3">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="52"/>
                         <ColumnDefinition Width="68"/>
@@ -42,7 +42,7 @@
                 <ItemsControl ItemsSource="{Binding Patterns}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="0,3">
+                            <Grid Margin="8,3,12,3">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="52"/>
                                     <ColumnDefinition Width="68"/>
@@ -89,7 +89,7 @@
         <ScrollViewer Grid.Row="5" MaxHeight="200"
                       VerticalScrollBarVisibility="Auto" Margin="0,0,0,0">
             <StackPanel>
-                <Grid Margin="0,0,0,3">
+                <Grid Margin="8,0,12,3">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="52"/>
                         <ColumnDefinition Width="68"/>
@@ -105,7 +105,7 @@
                 <ItemsControl ItemsSource="{Binding InternalPatterns}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="0,3">
+                            <Grid Margin="8,3,12,3">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="52"/>
                                     <ColumnDefinition Width="68"/>
