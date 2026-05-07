@@ -47,27 +47,11 @@
                 <Button Content="更新"
                         Command="{Binding RefreshCommand}"
                         Padding="14,5" FontSize="12"/>
-                <Border Margin="8,0,0,0"
-                        Background="#F7F7F7"
-                        BorderBrush="#B8C0C8"
-                        BorderThickness="1"
-                        CornerRadius="4"
-                        Padding="4,3">
-                    <StackPanel Orientation="Horizontal">
-                        <RadioButton Content="クラス"
-                                     GroupName="DisplayMode"
-                                     IsChecked="{Binding IsClassMode, Mode=TwoWay}"
-                                     Padding="8,2"
-                                     FontSize="12"
-                                     VerticalContentAlignment="Center"/>
-                        <RadioButton Content="名前空間"
-                                     GroupName="DisplayMode"
-                                     IsChecked="{Binding IsNamespaceMode, Mode=TwoWay}"
-                                     Padding="8,2"
-                                     FontSize="12"
-                                     VerticalContentAlignment="Center"/>
-                    </StackPanel>
-                </Border>
+                <Button Content="{Binding DisplayModeButtonText}"
+                        Command="{Binding ToggleDisplayModeCommand}"
+                        Margin="8,0,0,0"
+                        Padding="14,5"
+                        FontSize="12"/>
             </StackPanel>
 
             <!-- 矢印凡例（スクロール・ズーム対象外） -->

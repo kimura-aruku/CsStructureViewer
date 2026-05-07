@@ -187,8 +187,8 @@ public class GraphCanvas : FrameworkElement
                 continue;
             }
 
-            var (nsColor, classColor) = ColorPalette.GetColors(i, total);
-            colors[$"namespace:{ns.Name}"] = nsColor;
+            var (_, classColor) = ColorPalette.GetColors(i, total);
+            colors[$"namespace:{ns.Name}"] = classColor;
             foreach (var cls in ns.Classes)
                 colors[$"class:{cls.FullyQualifiedName}"] = classColor;
         }
