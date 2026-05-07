@@ -277,7 +277,7 @@ public class LayoutEngine
         var segs = new List<RouteSegment> { firstSeg };
         segs.AddRange(middleSegs);
         segs.Add(lastSeg);
-        return SimplifyMiddleRoute(NormalizeSegments(segs), obstacles);
+        return SimplifyMiddleRoute(segs, obstacles);
     }
 
     private static (Side srcSide, Side tgtSide)[] SelectSidePairs(
@@ -612,6 +612,31 @@ public class LayoutEngine
         return result.Where(s => s.Length > 0.1).ToList();
     }
 
+    private static List<RouteSegment> NormalizeSameDirectionSegments(List<RouteSegment> segs)
+    {
+        var result = segs.Where(s => s.Length > 0.1).ToList();
+
+        bool changed;
+        do
+        {
+            changed = false;
+            for (int i = 0; i < result.Count - 1; i++)
+            {
+                var a = result[i];
+                var b = result[i + 1];
+                if (a.Direction != b.Direction || !PointsClose(a.End, b.Start))
+                    continue;
+
+                result[i] = new RouteSegment(a.X, a.Y, a.Direction, a.Length + b.Length);
+                result.RemoveAt(i + 1);
+                changed = true;
+                break;
+            }
+        } while (changed);
+
+        return result.Where(s => s.Length > 0.1).ToList();
+    }
+
     private static RouteSegment? MergeOppositeSegments(RouteSegment a, RouteSegment b)
     {
         var diff = a.Length - b.Length;
@@ -834,7 +859,22 @@ public class LayoutEngine
         var result = new List<RouteSegment> { firstSeg };
         result.AddRange(middle);
         result.Add(lastSeg);
-        return NormalizeSegments(RemoveRouteCycles(result));
+        return NormalizeSameDirectionSegments(RemoveRouteCyclesPreservingEnds(result));
+    }
+
+    private static List<RouteSegment> RemoveRouteCyclesPreservingEnds(List<RouteSegment> route)
+    {
+        if (route.Count <= 2) return route;
+
+        var firstSeg = route[0];
+        var lastSeg = route[^1];
+        var middle = route.GetRange(1, route.Count - 2);
+        middle = RemoveRouteCycles(middle);
+
+        var result = new List<RouteSegment> { firstSeg };
+        result.AddRange(middle);
+        result.Add(lastSeg);
+        return result;
     }
 
     private static List<RouteSegment> SimplifyRoute(
