@@ -219,12 +219,11 @@ public class LayoutEngine
                 !rowByKey.TryGetValue(targetKey, out var targetRow))
                 continue;
 
-            var sameOrNearRow = Math.Abs(sourceRow - targetRow) <= 1;
             var sourceLane = AllocateRowLane(nextRowLane, sourceRow);
             var targetLane = sourceRow == targetRow
                 ? sourceLane
                 : AllocateRowLane(nextRowLane, targetRow);
-            var sideLane = sameOrNearRow ? -1 : nextSideLane++;
+            var sideLane = sourceRow == targetRow ? -1 : nextSideLane++;
 
             plans.Add(new LaneRoutePlan(
                 sourceKey,
