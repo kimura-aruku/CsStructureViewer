@@ -30,7 +30,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="52"/>
                         <ColumnDefinition Width="68"/>
-                        <ColumnDefinition Width="230"/>
+                        <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
@@ -46,7 +46,7 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="52"/>
                                     <ColumnDefinition Width="68"/>
-                                    <ColumnDefinition Width="230"/>
+                                    <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -93,7 +93,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="52"/>
                         <ColumnDefinition Width="68"/>
-                        <ColumnDefinition Width="230"/>
+                        <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
@@ -109,7 +109,7 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="52"/>
                                     <ColumnDefinition Width="68"/>
-                                    <ColumnDefinition Width="230"/>
+                                    <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
