@@ -13,9 +13,12 @@ namespace CsStructureViewer.Rendering;
 
 public class GraphCanvas : FrameworkElement
 {
+    private const double ContentMargin = 48.0;
+    private const double InitialViewportPadding = 24.0;
+
     public static readonly DependencyProperty LayoutResultProperty =
         DependencyProperty.Register(nameof(LayoutResult), typeof(LayoutResult), typeof(GraphCanvas),
-            new PropertyMetadata(null, (d, e) => ((GraphCanvas)d).Render((LayoutResult?)e.NewValue)));
+            new PropertyMetadata(null, (d, e) => ((GraphCanvas)d).Render((LayoutResult?)e.NewValue, resetViewport: true)));
 
     public static readonly DependencyProperty DebugClassTransparencyEnabledProperty =
         DependencyProperty.Register(nameof(DebugClassTransparencyEnabled), typeof(bool), typeof(GraphCanvas),
@@ -41,6 +44,10 @@ public class GraphCanvas : FrameworkElement
     private Point _panStart;
     private Vector _translateOrigin;
     private string? _transparentClassKey;
+    private Size _contentSize = new(1, 1);
+    private Rect _centralBounds = Rect.Empty;
+
+    public event EventHandler? InitialViewportRequested;
 
     private static readonly Color GlobalClassColor = Color.FromRgb(180, 185, 195);
     private static readonly Color FolderFillColor = Color.FromArgb(45, 140, 140, 140);
@@ -70,21 +77,44 @@ public class GraphCanvas : FrameworkElement
 
     protected override Size MeasureOverride(Size availableSize)
     {
-        _outer.Measure(availableSize);
-        return availableSize;
+        _outer.Measure(_contentSize);
+        return _contentSize;
     }
 
     protected override Size ArrangeOverride(Size finalSize)
     {
-        _outer.Arrange(new Rect(finalSize));
-        return finalSize;
+        var arrangeSize = new Size(
+            Math.Max(finalSize.Width, _contentSize.Width),
+            Math.Max(finalSize.Height, _contentSize.Height));
+        _outer.Arrange(new Rect(arrangeSize));
+        return arrangeSize;
+    }
+
+    public Point GetInitialScrollOffset(Size viewportSize)
+    {
+        if (_centralBounds.IsEmpty)
+            return new Point(0, 0);
+
+        var x = Math.Max(0, _centralBounds.X - InitialViewportPadding);
+        var y = Math.Max(0, _centralBounds.Y - InitialViewportPadding);
+
+        if (!double.IsNaN(viewportSize.Width) && viewportSize.Width > 0)
+            x = Math.Min(x, Math.Max(0, _contentSize.Width - viewportSize.Width));
+        if (!double.IsNaN(viewportSize.Height) && viewportSize.Height > 0)
+            y = Math.Min(y, Math.Max(0, _contentSize.Height - viewportSize.Height));
+
+        return new Point(x, y);
     }
 
     // ── Render ───────────────────────────────────────────────────────
 
-    private void Render(LayoutResult? result)
+    private void Render(LayoutResult? result, bool resetViewport = false)
     {
         _inner.Children.Clear();
+        if (resetViewport)
+            ResetViewTransform();
+        UpdateLayoutMetrics(result);
+        InvalidateMeasure();
         if (result == null) return;
 
         var total = result.NamespaceOrder.Count;
@@ -125,6 +155,66 @@ public class GraphCanvas : FrameworkElement
 
         if (!string.IsNullOrWhiteSpace(result.ProjectPath))
             LayoutDiagnosticsWriter.WriteLatest(result, result.ProjectPath);
+
+        if (resetViewport)
+            InitialViewportRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ResetViewTransform()
+    {
+        _scale.ScaleX = 1.0;
+        _scale.ScaleY = 1.0;
+        _translate.X = 0.0;
+        _translate.Y = 0.0;
+    }
+
+    private void UpdateLayoutMetrics(LayoutResult? result)
+    {
+        if (result == null)
+        {
+            _contentSize = new Size(1, 1);
+            _centralBounds = Rect.Empty;
+            return;
+        }
+
+        var contentBounds = Rect.Empty;
+        var centralBounds = Rect.Empty;
+
+        foreach (var rect in result.NamespaceRects.Values)
+        {
+            contentBounds.Union(rect);
+            centralBounds.Union(rect);
+        }
+
+        foreach (var rect in result.ClassRects.Values)
+        {
+            contentBounds.Union(rect);
+            centralBounds.Union(rect);
+        }
+
+        foreach (var arrow in result.Arrows)
+        {
+            contentBounds.Union(arrow.Start);
+            contentBounds.Union(arrow.End);
+            foreach (var segment in arrow.Segments)
+            {
+                contentBounds.Union(segment.Start);
+                contentBounds.Union(segment.End);
+            }
+        }
+
+        if (contentBounds.IsEmpty)
+        {
+            _contentSize = new Size(1, 1);
+            _centralBounds = Rect.Empty;
+            return;
+        }
+
+        contentBounds.Inflate(ContentMargin, ContentMargin);
+        _contentSize = new Size(
+            Math.Max(1, contentBounds.Right),
+            Math.Max(1, contentBounds.Bottom));
+        _centralBounds = centralBounds.IsEmpty ? contentBounds : centralBounds;
     }
 
     // ── Folder rect drawing ──────────────────────────────────────────

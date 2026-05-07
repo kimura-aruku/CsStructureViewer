@@ -28,10 +28,15 @@
                        Visibility="{Binding ShowWelcome, Converter={StaticResource BoolToVis}}"/>
 
             <!-- グラフビュー -->
-            <rendering:GraphCanvas
-                LayoutResult="{Binding LayoutResult}"
-                DebugClassTransparencyEnabled="{Binding DebugClassTransparencyEnabled}"
-                Visibility="{Binding ShowGraph, Converter={StaticResource BoolToVis}}"/>
+            <ScrollViewer x:Name="GraphScrollViewer"
+                          HorizontalScrollBarVisibility="Visible"
+                          VerticalScrollBarVisibility="Visible"
+                          CanContentScroll="False"
+                          Visibility="{Binding ShowGraph, Converter={StaticResource BoolToVis}}">
+                <rendering:GraphCanvas x:Name="GraphCanvas"
+                    LayoutResult="{Binding LayoutResult}"
+                    DebugClassTransparencyEnabled="{Binding DebugClassTransparencyEnabled}"/>
+            </ScrollViewer>
 
             <!-- 更新ボタン -->
             <Button Content="更新"
