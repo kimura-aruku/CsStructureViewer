@@ -62,6 +62,7 @@ public class MainViewModel : INotifyPropertyChanged
             if (SetField(ref _displayMode, value))
             {
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayModeButtonText)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsNamespaceMode)));
             }
         }
     }
@@ -71,11 +72,16 @@ public class MainViewModel : INotifyPropertyChanged
             ? "表示: クラス"
             : "表示: 名前空間";
 
+    public bool IsNamespaceMode
+    {
+        get => DisplayMode == GraphDisplayMode.Namespace;
+        set => ChangeDisplayMode(value ? GraphDisplayMode.Namespace : GraphDisplayMode.Class);
+    }
+
     public AppSettings Settings { get; }
     public bool DebugClassTransparencyEnabled => Settings.DebugClassTransparencyEnabled;
     public AsyncRelayCommand OpenProjectCommand { get; }
     public AsyncRelayCommand RefreshCommand { get; }
-    public RelayCommand ToggleDisplayModeCommand { get; }
     public RelayCommand CancelCommand { get; }
 
     public MainViewModel()
@@ -83,7 +89,6 @@ public class MainViewModel : INotifyPropertyChanged
         Settings = _settingsManager.Load();
         OpenProjectCommand = new AsyncRelayCommand(OpenProjectAsync);
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => LastFolderPath is not null && !IsAnalyzing);
-        ToggleDisplayModeCommand = new RelayCommand(ToggleDisplayMode, () => !IsAnalyzing);
         CancelCommand = new RelayCommand(() => _cts?.Cancel(), () => IsAnalyzing);
     }
 
@@ -114,7 +119,6 @@ public class MainViewModel : INotifyPropertyChanged
         _cts = new CancellationTokenSource();
         CancelCommand.RaiseCanExecuteChanged();
         RefreshCommand.RaiseCanExecuteChanged();
-        ToggleDisplayModeCommand.RaiseCanExecuteChanged();
 
         try
         {
@@ -133,16 +137,7 @@ public class MainViewModel : INotifyPropertyChanged
             _cts = null;
             CancelCommand.RaiseCanExecuteChanged();
             RefreshCommand.RaiseCanExecuteChanged();
-            ToggleDisplayModeCommand.RaiseCanExecuteChanged();
         }
-    }
-
-    private void ToggleDisplayMode()
-    {
-        ChangeDisplayMode(
-            DisplayMode == GraphDisplayMode.Class
-                ? GraphDisplayMode.Namespace
-                : GraphDisplayMode.Class);
     }
 
     private void ChangeDisplayMode(GraphDisplayMode mode)

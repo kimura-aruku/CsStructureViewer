@@ -4,6 +4,66 @@
         xmlns:rendering="clr-namespace:CsStructureViewer.Rendering"
         Title="CsStructureViewer" Height="800" Width="1200"
         Background="#F2F2F2">
+    <Window.Resources>
+        <Style x:Key="DisplayModeSwitchStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="132"/>
+            <Setter Property="Height" Value="29"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="#333333"/>
+            <Setter Property="Background" Value="#D8DEE6"/>
+            <Setter Property="BorderBrush" Value="#9AA6B2"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Track"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="14"
+                                SnapsToDevicePixels="True">
+                            <Grid Margin="3">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="Thumb"
+                                        Grid.Column="0"
+                                        Background="White"
+                                        CornerRadius="11"
+                                        BorderBrush="#C7CDD4"
+                                        BorderThickness="1"/>
+                                <TextBlock Grid.Column="0"
+                                           Text="クラス"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           FontSize="12"
+                                           Foreground="#222222"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="名前空間"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           FontSize="12"
+                                           Foreground="#555555"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background" Value="#CFE1F4"/>
+                                <Setter TargetName="Thumb" Property="Grid.Column" Value="1"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Track" Property="BorderBrush" Value="#6F8EAD"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Track" Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -47,11 +107,9 @@
                 <Button Content="更新"
                         Command="{Binding RefreshCommand}"
                         Padding="14,5" FontSize="12"/>
-                <Button Content="{Binding DisplayModeButtonText}"
-                        Command="{Binding ToggleDisplayModeCommand}"
-                        Margin="8,0,0,0"
-                        Padding="14,5"
-                        FontSize="12"/>
+                <ToggleButton IsChecked="{Binding IsNamespaceMode, Mode=TwoWay}"
+                              Style="{StaticResource DisplayModeSwitchStyle}"
+                              Margin="8,0,0,0"/>
             </StackPanel>
 
             <!-- 矢印凡例（スクロール・ズーム対象外） -->
