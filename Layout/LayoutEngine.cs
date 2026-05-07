@@ -34,6 +34,7 @@ public class LayoutEngine
     private const double MaxClassWidth = 200.0;
     private const double MinClassWidth = 60.0;
     private const double ClassGap = 18.0;
+    private const double NamespaceGapMultiplier = 3.0;
     private const double NsPadding = 16.0;
     private const double NsLabelHeight = 22.0;
     private const double NsGap = 24.0;
@@ -355,7 +356,7 @@ public class LayoutEngine
             if (row.Namespace != null)
                 namespaceEndY[row.Namespace] = rect.Bottom + NsPadding;
 
-            y = rect.Bottom + ClassGap;
+            y = rect.Bottom + CalculateNextRowGap(rows, rowIndex);
         }
 
         foreach (var ns in graph.Namespaces.Where(ns => !ns.IsInternal && namespaceStartY.ContainsKey(ns)))
@@ -370,6 +371,19 @@ public class LayoutEngine
             result.NamespaceOrder.Add(ns);
 
         return rowRects;
+    }
+
+    private static double CalculateNextRowGap(IReadOnlyList<LayoutRow> rows, int rowIndex)
+    {
+        if (rowIndex >= rows.Count - 1)
+            return ClassGap;
+
+        var current = rows[rowIndex].Namespace;
+        var next = rows[rowIndex + 1].Namespace;
+        if (current != null && next != null && !ReferenceEquals(current, next))
+            return ClassGap * NamespaceGapMultiplier;
+
+        return ClassGap;
     }
 
     private static Dictionary<string, Rect> BuildRectByKey(LayoutResult result)
