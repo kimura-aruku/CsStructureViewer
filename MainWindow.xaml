@@ -12,12 +12,10 @@
 
         <!-- メニューバー -->
         <Menu Grid.Row="0">
-            <MenuItem Header="ファイル(_F)">
-                <MenuItem Header="開く(_O)" Command="{Binding OpenProjectCommand}"/>
-            </MenuItem>
-            <MenuItem Header="設定(_S)">
-                <MenuItem Header="設定画面を開く(_C)" Click="OpenSettings_Click"/>
-            </MenuItem>
+            <MenuItem Header="ファイル(_F)"
+                      Command="{Binding OpenProjectCommand}"/>
+            <MenuItem Header="設定(_S)"
+                      Click="OpenSettings_Click"/>
         </Menu>
 
         <!-- メインエリア -->
@@ -32,6 +30,7 @@
             <!-- グラフビュー -->
             <rendering:GraphCanvas
                 LayoutResult="{Binding LayoutResult}"
+                DebugClassTransparencyEnabled="{Binding DebugClassTransparencyEnabled}"
                 Visibility="{Binding ShowGraph, Converter={StaticResource BoolToVis}}"/>
 
             <!-- 更新ボタン -->

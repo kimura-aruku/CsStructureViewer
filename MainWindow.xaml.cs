@@ -22,6 +22,7 @@ public partial class MainWindow : Window
         {
             Owner = this
         };
-        settingsWindow.ShowDialog();
+        if (settingsWindow.ShowDialog() == true)
+            vm.NotifySettingsChanged();
     }
 }

@@ -13,6 +13,7 @@ public class SettingsViewModel
     public ObservableCollection<ExcludePatternItem> Patterns { get; } = new();
     public ObservableCollection<ExcludePatternItem> InternalPatterns { get; } = new();
     public RelayCommand AddInternalPatternCommand { get; }
+    public bool DebugClassTransparencyEnabled { get; set; }
 
     public SettingsViewModel(AppSettings settings, SettingsManager settingsManager)
     {
@@ -25,10 +26,11 @@ public class SettingsViewModel
         foreach (var p in settings.InternalExcludePatterns)
             InternalPatterns.Add(CreateItem(p, InternalPatterns));
 
+        DebugClassTransparencyEnabled = settings.DebugClassTransparencyEnabled;
+
         AddInternalPatternCommand = new RelayCommand(() =>
         {
             InternalPatterns.Add(CreateItem(string.Empty, InternalPatterns));
-            Save();
         });
     }
 
@@ -41,14 +43,11 @@ public class SettingsViewModel
             {
                 var idx = list.IndexOf(item!);
                 list.Insert(idx + 1, CreateItem(string.Empty, list));
-                Save();
             },
             remove: _ =>
             {
                 list.Remove(item!);
-                Save();
             });
-        item.PropertyChanged += (_, _) => Save();
         return item;
     }
 
@@ -58,6 +57,7 @@ public class SettingsViewModel
         _settings.ExcludePatterns.AddRange(Patterns.Select(p => p.Pattern));
         _settings.InternalExcludePatterns.Clear();
         _settings.InternalExcludePatterns.AddRange(InternalPatterns.Select(p => p.Pattern));
+        _settings.DebugClassTransparencyEnabled = DebugClassTransparencyEnabled;
         _settingsManager.Save(_settings);
     }
 }

@@ -54,6 +54,7 @@ public class MainViewModel : INotifyPropertyChanged
     public bool ShowRefresh => LastFolderPath is not null;
 
     public AppSettings Settings { get; }
+    public bool DebugClassTransparencyEnabled => Settings.DebugClassTransparencyEnabled;
     public AsyncRelayCommand OpenProjectCommand { get; }
     public AsyncRelayCommand RefreshCommand { get; }
     public RelayCommand CancelCommand { get; }
@@ -64,6 +65,11 @@ public class MainViewModel : INotifyPropertyChanged
         OpenProjectCommand = new AsyncRelayCommand(OpenProjectAsync);
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => LastFolderPath is not null && !IsAnalyzing);
         CancelCommand = new RelayCommand(() => _cts?.Cancel(), () => IsAnalyzing);
+    }
+
+    public void NotifySettingsChanged()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DebugClassTransparencyEnabled)));
     }
 
     private async Task OpenProjectAsync()

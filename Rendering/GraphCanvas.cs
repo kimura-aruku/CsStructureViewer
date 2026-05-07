@@ -17,10 +17,20 @@ public class GraphCanvas : FrameworkElement
         DependencyProperty.Register(nameof(LayoutResult), typeof(LayoutResult), typeof(GraphCanvas),
             new PropertyMetadata(null, (d, e) => ((GraphCanvas)d).Render((LayoutResult?)e.NewValue)));
 
+    public static readonly DependencyProperty DebugClassTransparencyEnabledProperty =
+        DependencyProperty.Register(nameof(DebugClassTransparencyEnabled), typeof(bool), typeof(GraphCanvas),
+            new PropertyMetadata(false, (d, _) => ((GraphCanvas)d).Render(((GraphCanvas)d).LayoutResult)));
+
     public LayoutResult? LayoutResult
     {
         get => (LayoutResult?)GetValue(LayoutResultProperty);
         set => SetValue(LayoutResultProperty, value);
+    }
+
+    public bool DebugClassTransparencyEnabled
+    {
+        get => (bool)GetValue(DebugClassTransparencyEnabledProperty);
+        set => SetValue(DebugClassTransparencyEnabledProperty, value);
     }
 
     private readonly Canvas _outer;
@@ -30,6 +40,7 @@ public class GraphCanvas : FrameworkElement
     private bool _isPanning;
     private Point _panStart;
     private Vector _translateOrigin;
+    private string? _transparentClassKey;
 
     private static readonly Color GlobalClassColor = Color.FromRgb(180, 185, 195);
     private static readonly Color FolderFillColor = Color.FromArgb(45, 140, 140, 140);
@@ -205,11 +216,14 @@ public class GraphCanvas : FrameworkElement
         if (!rects.TryGetValue(cls, out var rect)) return;
 
         var borderColor = DarkenColor(color, 0.25);
+        var classKey = cls.FullyQualifiedName;
         var border = new Border
         {
             Width = rect.Width,
             Height = rect.Height,
-            Background = new SolidColorBrush(color),
+            Background = DebugClassTransparencyEnabled && _transparentClassKey == classKey
+                ? Brushes.Transparent
+                : new SolidColorBrush(color),
             BorderBrush = new SolidColorBrush(borderColor),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(3),
@@ -223,6 +237,14 @@ public class GraphCanvas : FrameworkElement
                 Foreground = Brushes.Black,
                 Padding = new Thickness(4, 4, 4, 0)
             }
+        };
+        border.MouseLeftButtonDown += (_, e) =>
+        {
+            if (!DebugClassTransparencyEnabled) return;
+
+            _transparentClassKey = _transparentClassKey == classKey ? null : classKey;
+            Render(LayoutResult);
+            e.Handled = true;
         };
         Canvas.SetLeft(border, rect.X);
         Canvas.SetTop(border, rect.Y);
