@@ -13,6 +13,7 @@ public class SettingsViewModel
     public ObservableCollection<ExcludePatternItem> Patterns { get; } = new();
     public ObservableCollection<ExcludePatternItem> InternalPatterns { get; } = new();
     public bool DebugClassTransparencyEnabled { get; set; }
+    public event Action<ExcludePatternItem>? PatternAdded;
 
     public SettingsViewModel(AppSettings settings, SettingsManager settingsManager)
     {
@@ -39,7 +40,9 @@ public class SettingsViewModel
             addAfter: _ =>
             {
                 var idx = list.IndexOf(item!);
-                list.Insert(idx + 1, CreateItem(CreateDefaultRule(), list));
+                var newItem = CreateItem(CreateDefaultRule(), list);
+                list.Insert(idx + 1, newItem);
+                PatternAdded?.Invoke(newItem);
             },
             remove: _ =>
             {
