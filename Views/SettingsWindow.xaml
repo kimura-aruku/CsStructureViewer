@@ -21,7 +21,8 @@
         <TextBlock Grid.Row="0" Text="完全除外パターン"
                    FontWeight="SemiBold" FontSize="13" Margin="0,0,0,4"/>
         <TextBlock Grid.Row="1" FontSize="11" Foreground="#777777" Margin="0,0,0,8"
-                   Text="フォルダ名または名前空間名が一致する場合、解析から除外します。"/>
+                   TextWrapping="Wrap"
+                   Text="フォルダ名または名前空間名が一致する場合、解析から除外します。末尾の .* で前方一致できます。"/>
 
         <ScrollViewer Grid.Row="2" MaxHeight="200"
                       VerticalScrollBarVisibility="Auto" Margin="0,0,0,20">
@@ -84,7 +85,7 @@
                    FontWeight="SemiBold" FontSize="13" Margin="0,0,0,4"/>
         <TextBlock Grid.Row="4" FontSize="11" Foreground="#777777" Margin="0,0,0,8"
                    TextWrapping="Wrap"
-                   Text="フォルダ名または名前空間名が一致する場合、フォルダ矩形として表示し、クラス矩形と外部への矢印を非表示にします。"/>
+                   Text="フォルダ名または名前空間名が一致する場合、フォルダ矩形として表示し、クラス矩形と外部への矢印を非表示にします。末尾の .* で前方一致できます。"/>
 
         <ScrollViewer Grid.Row="5" MaxHeight="200"
                       VerticalScrollBarVisibility="Auto" Margin="0,0,0,0">

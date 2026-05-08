@@ -81,12 +81,25 @@ public class ProjectAnalyzer
 
     private static bool IsMatchingNamespace(string? namespaceName, string pattern) =>
         !string.IsNullOrWhiteSpace(namespaceName) &&
-        namespaceName.Equals(pattern, StringComparison.OrdinalIgnoreCase);
+        IsPatternMatch(namespaceName, pattern);
 
     private static bool IsInMatchingFolder(string filePath, string pattern) =>
         !string.IsNullOrWhiteSpace(pattern) &&
         filePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            .Any(seg => seg.Equals(pattern, StringComparison.OrdinalIgnoreCase));
+            .Any(seg => IsPatternMatch(seg, pattern));
+
+    private static bool IsPatternMatch(string value, string pattern)
+    {
+        pattern = pattern.Trim();
+        if (pattern.EndsWith(".*", StringComparison.Ordinal))
+        {
+            var prefix = pattern[..^2];
+            return value.Equals(prefix, StringComparison.OrdinalIgnoreCase) ||
+                   value.StartsWith(prefix + ".", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return value.Equals(pattern, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static IEnumerable<string> GetCsFiles(string rootPath, List<ExcludePatternRule> excludePatterns)
     {
