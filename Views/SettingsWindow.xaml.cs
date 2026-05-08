@@ -35,7 +35,10 @@ public partial class SettingsWindow : Window
 
             if (textBox == null) return;
 
-            textBox.BringIntoView();
+            var row = FindAncestor<Grid>(textBox, element => ReferenceEquals(element.DataContext, item));
+            if (row != null)
+                EnsureFullyVisible(row);
+
             textBox.Focus();
             textBox.SelectAll();
         }, DispatcherPriority.ContextIdle);
@@ -72,5 +75,40 @@ public partial class SettingsWindow : Window
         }
 
         return null;
+    }
+
+    private static T? FindAncestor<T>(DependencyObject child, Func<T, bool> predicate)
+        where T : DependencyObject
+    {
+        var parent = VisualTreeHelper.GetParent(child);
+        while (parent != null)
+        {
+            if (parent is T target && predicate(target))
+                return target;
+
+            parent = VisualTreeHelper.GetParent(parent);
+        }
+
+        return null;
+    }
+
+    private static void EnsureFullyVisible(FrameworkElement element)
+    {
+        var scrollViewer = FindAncestor<ScrollViewer>(element, _ => true);
+        if (scrollViewer == null) return;
+
+        var top = element.TransformToAncestor(scrollViewer).Transform(new Point(0, 0)).Y;
+        var bottom = top + element.ActualHeight;
+        const double padding = 4;
+
+        if (top < padding)
+        {
+            scrollViewer.ScrollToVerticalOffset(scrollViewer.VerticalOffset + top - padding);
+        }
+        else if (bottom > scrollViewer.ViewportHeight - padding)
+        {
+            scrollViewer.ScrollToVerticalOffset(
+                scrollViewer.VerticalOffset + bottom - scrollViewer.ViewportHeight + padding);
+        }
     }
 }
