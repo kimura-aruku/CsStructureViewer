@@ -6,6 +6,9 @@
 # Debug/test project for local use only
 DebugProject/
 
+# Project-local agent instructions are generated per session
+/AGENTS.md
+
 # dotenv files
 .env
 
